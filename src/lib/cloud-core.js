@@ -74,6 +74,24 @@ export function createCloud(sb, {retryMs = 6000, debounceMs = 700} = {}){
     async session(){ const {data} = await sb.auth.getSession(); return data.session; },
     async signIn(email, password){ const {error} = await sb.auth.signInWithPassword({email, password}); if (error) throw error; },
     async signOut(){ await sb.auth.signOut(); },
+    /* 'login' | 'enroll' (sem segundo fator ainda) | 'challenge' (pedir o código) | 'ready' */
+    async authState(){
+      const {data: s} = await sb.auth.getSession();
+      if (!s || !s.session) return 'login';
+      const {data: a, error} = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (error) throw error;
+      if (a.currentLevel === 'aal2') return 'ready';
+      return a.nextLevel === 'aal2' ? 'challenge' : 'enroll';
+    },
+    async enroll(){
+      const {data: l} = await sb.auth.mfa.listFactors();
+      for (const f of (l && l.all) || []) if (f.factor_type === 'totp' && f.status === 'unverified') await sb.auth.mfa.unenroll({factorId: f.id});
+      const {data, error} = await sb.auth.mfa.enroll({factorType: 'totp', friendlyName: 'Celular ' + new Date().toISOString().slice(0, 10)});
+      if (error) throw error;
+      return {factorId: data.id, qr: data.totp.qr_code, secret: data.totp.secret};
+    },
+    async verifyCode(factorId, code){ const {error} = await sb.auth.mfa.challengeAndVerify({factorId, code: String(code).replace(/\s/g, '')}); if (error) throw error; },
+    async factorId(){ const {data, error} = await sb.auth.mfa.listFactors(); if (error) throw error; const f = ((data && data.totp) || [])[0]; if (!f) throw new Error('sem fator verificado'); return f.id; },
     onSignOut(cb){ sb.auth.onAuthStateChange(ev => { if (ev === 'SIGNED_OUT') cb(); }); },
     async load(seedServices){
       const [sv, pa, at] = await Promise.all([all('servicos', 'ordem'), all('pacientes', 'id'), all('atendimentos', 'id')]);

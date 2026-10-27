@@ -10,9 +10,12 @@ create table if not exists public.membros (
   created_at timestamptz not null default now()
 );
 
+-- Só é membro quem está na lista E entrou com segundo fator (aal2).
+-- Mesmo com a senha vazada, sem o código do celular o banco não entrega nada.
 create or replace function public.is_member() returns boolean
 language sql stable security definer set search_path = public as $$
   select exists (select 1 from public.membros where user_id = auth.uid())
+     and coalesce(auth.jwt() ->> 'aal', '') = 'aal2'
 $$;
 revoke all on function public.is_member() from public;
 grant execute on function public.is_member() to authenticated;

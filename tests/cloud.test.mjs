@@ -67,4 +67,31 @@ let n = 0; const ok = m => console.log(`ok ${++n} - ${m}`);
   c.queue(db); await sleep(80); assert.equal(sb.t.pacientes.size, 950); assert.deepEqual(sb.calls.map(x => x[2]), [400, 400, 150]);
   const c2 = createCloud(sb, opts); assert.equal((await c2.load(seed)).patients.length, 950); ok('importação de 950 pacientes em lotes de 400, e recarrega todos'); }
 
+
+/* ---- login em dois passos ---- */
+function fakeAuth(st){
+  const log = [];
+  const sb = {auth: {
+    getSession: async () => ({data: {session: st.session ? {} : null}}),
+    mfa: {
+      getAuthenticatorAssuranceLevel: async () => ({data: {currentLevel: st.cur, nextLevel: st.next}, error: null}),
+      listFactors: async () => ({data: {all: st.factors, totp: st.factors.filter(f => f.status === 'verified')}, error: null}),
+      unenroll: async ({factorId}) => { log.push(['unenroll', factorId]); st.factors = st.factors.filter(f => f.id !== factorId); return {error: null}; },
+      enroll: async () => { const f = {id: 'f' + (st.factors.length + 1), factor_type: 'totp', status: 'unverified'}; st.factors.push(f); return {data: {id: f.id, totp: {qr_code: 'data:image/svg+xml;utf-8,<svg/>', secret: 'ABCD'}}, error: null}; },
+      challengeAndVerify: async ({factorId, code}) => { log.push(['verify', factorId, code]); if (code !== '123456') return {error: Object.assign(new Error('bad'), {status: 400})}; st.factors.forEach(f => { if (f.id === factorId) f.status = 'verified'; }); st.cur = 'aal2'; return {error: null}; },
+    }}, from: () => ({})};
+  return {sb, log, st};
+}
+{ const k = (o) => { const f = fakeAuth(o); return {c: createCloud(f.sb, opts), ...f}; };
+  assert.equal(await k({session: false, cur: null, next: null, factors: []}).c.authState(), 'login');
+  assert.equal(await k({session: true, cur: 'aal1', next: 'aal1', factors: []}).c.authState(), 'enroll');
+  assert.equal(await k({session: true, cur: 'aal1', next: 'aal2', factors: [{id: 'f1', factor_type: 'totp', status: 'verified'}]}).c.authState(), 'challenge');
+  assert.equal(await k({session: true, cur: 'aal2', next: 'aal2', factors: [{id: 'f1', factor_type: 'totp', status: 'verified'}]}).c.authState(), 'ready');
+  ok('estados do login: sem sessão, sem 2º fator, pedir código, liberado'); }
+{ const f = fakeAuth({session: true, cur: 'aal1', next: 'aal1', factors: [{id: 'velho', factor_type: 'totp', status: 'unverified'}]}); const c = createCloud(f.sb, opts);
+  const e = await c.enroll(); assert.deepEqual(f.log, [['unenroll', 'velho']]); assert.equal(e.secret, 'ABCD'); assert.ok(e.qr.startsWith('data:image/svg'));
+  await assert.rejects(c.verifyCode(e.factorId, '000000')); assert.equal(await c.authState(), 'enroll');
+  await c.verifyCode(e.factorId, '123 456'); assert.equal(f.log.at(-1)[2], '123456'); assert.equal(await c.authState(), 'ready');
+  ok('cadastro do 2º fator: descarta tentativa antiga, rejeita código errado, aceita código com espaço'); }
+
 console.log(`\n${n} testes passaram`);

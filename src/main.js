@@ -28,15 +28,20 @@ const svc = id => db.services.find(s => s.id === id);
 const svcBy = p => db.services.find(s => s.nome.startsWith(p));
 
 function seed(){
-  const t = today();
-  const s = p => SERVICES.find(x => x.nome.startsWith(p));
-  const mk = (nome, tel, nasc, atend) => ({id: uid(), demo: true, nome, tel, nasc, insta: '', origem: '', obs: '', lgpd: {ok: false, data: ''}, aval: {}, anam: {}, atend});
-  const at = (dias, p, regiao, valor, evol, ret) => { const sv = s(p); const data = addDays(t, -dias); return {id: uid(), data, servicoId: sv.id, regiao, produto: '', lote: '', sessao: '', valor, evolucao: evol, retorno: addDays(data, ret ?? sv.ret)}; };
-  return {v: 1, services: SERVICES.map(x => ({...x})), patients: [
-    mk('Ana Exemplo', '12 90000-0001', '1988-04-12', [at(10, 'Drenagem Linfática — corporal', 'Abdômen e flancos', 100, 'Boa resposta, relata menos inchaço.')]),
-    mk('Beatriz Exemplo', '12 90000-0002', '1992-09-30', [at(108, 'Toxina botulínica', 'Terço superior', 950, 'Resultado natural. Retorno para avaliar manutenção.')]),
-    mk('Carla Exemplo', '12 90000-0003', '1979-01-22', [at(70, 'Limpeza de pele', 'Face', 150, 'Pele oleosa, comedões na zona T.')]),
-  ]};
+  /* dados de exemplo determinísticos: 12 pacientes ativas e 4 que sumiram */
+  const t = today(); let r = 11; const rnd = () => (r = (r * 16807) % 2147483647) / 2147483647;
+  const nomes = ['Ana','Beatriz','Carla','Daniela','Eduarda','Fernanda','Gabriela','Helena','Isabela','Juliana','Karina','Larissa','Mariana','Natália','Patrícia','Renata'];
+  const find = n => SERVICES.find(x => x.nome.startsWith(n));
+  const leves = ['Drenagem Linfática — corporal','Modeladora — corporal','Limpeza de pele','Ultrassom corporal','Radiofrequência facial','Drenagem Linfática — 2 regiões'].map(find);
+  const altos = ['SkinBooster','Toxina botulínica','Microagulhamento facial','Bioestimulador — Nutriex','Preenchimento — baixa viscosidade (Renova)'].map(find);
+  const mk = (i, atend) => ({id: uid(), demo: true, nome: nomes[i] + ' Exemplo', tel: '12 9' + String(8000 + i * 37).padStart(4, '0') + '-' + String(1000 + i * 91).slice(0, 4), nasc: '19' + (80 + i) + '-0' + (1 + i % 9) + '-1' + (i % 9), insta: '', origem: ['Instagram','Indicação','Google'][i % 3], obs: '', lgpd: {ok: false, data: ''}, aval: {}, anam: {}, atend});
+  const patients = nomes.map((_, i) => {
+    const sumiu = i >= 12; let d = (sumiu ? 175 + i * 6 : 150 + i * 4); const fim = sumiu ? 100 + (i - 12) * 40 : 0; const atend = [];
+    while (d > fim) { const s = rnd() < .75 ? leves[Math.floor(rnd() * leves.length)] : altos[Math.floor(rnd() * altos.length)]; const data = addDays(t, -d);
+      atend.push({id: uid(), data, servicoId: s.id, regiao: '', produto: '', lote: '', sessao: '', valor: s.pix ?? '', evolucao: '', retorno: addDays(data, s.ret)});
+      d -= Math.round(14 + rnd() * 30 + (s.ret > 60 ? 40 : 0)); }
+    return mk(i, atend); });
+  return {v: 1, services: SERVICES.map(x => ({...x})), patients};
 }
 let db = {v: 1, services: [], patients: []};
 
@@ -71,25 +76,85 @@ function route(){
 }
 window.addEventListener('hashchange', () => { ptab = 'dados'; closeSheet(); route(); window.scrollTo(0, 0); });
 
-/* ---------- início ---------- */
+/* ---------- início: painel de gestão ---------- */
+const SUMIDA_DIAS = 90, INATIVA_DIAS = 365;
+const MES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+const MSG_SUMIDA = 'Oi, {nome}! Tudo bem? Faz um tempinho que não te vejo por aqui na Rose Coutinho. Como você está? Posso ver um horário pra você essa semana?';
+const MSG_RETORNO = 'Oi, {nome}! Está chegando a hora do seu retorno ({servico}). Quer que eu veja um horário pra você?';
+const monthAdd = (key, n) => { const [y, m] = key.split('-').map(Number); const d = new Date(y, m - 1 + n, 1); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
+const money0 = n => 'R$ ' + Math.round(n).toLocaleString('pt-BR');
+const short = n => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace('.', ',') + 'k' : String(Math.round(n));
+const firstName = n => n.trim().split(/\s+/)[0];
+function waLink(p, tpl, servico){
+  const d = (p.tel || '').replace(/\D/g, ''); if (d.length < 10) return '';
+  const num = d.length >= 12 && d.startsWith('55') ? d : '55' + d;
+  return 'https://wa.me/' + num + '?text=' + encodeURIComponent(tpl.replace('{nome}', firstName(p.nome)).replace('{servico}', servico || 'procedimento'));
+}
 function lastAtend(p){ return [...p.atend].sort((a, b) => b.data.localeCompare(a.data))[0]; }
+
+function dashData(){
+  const t = today(), dia = +t.slice(8), mes = t.slice(0, 7), ant = monthAdd(mes, -1);
+  const rows = db.patients.flatMap(p => p.atend.map(a => ({p, a, v: Number(a.valor) > 0 ? Number(a.valor) : 0})));
+  const ate = key => rows.filter(x => x.a.data.startsWith(key) && +x.a.data.slice(8) <= dia);
+  const soma = rs => { const rec = rs.reduce((s, x) => s + x.v, 0), cv = rs.filter(x => x.v > 0).length; return {rec, n: rs.length, ticket: cv ? rec / cv : 0}; };
+  const primeira = [...db.patients.filter(p => p.atend.length).map(p => p.atend.reduce((m, a) => a.data < m ? a.data : m, '9999'))];
+  const novos = key => primeira.filter(d => d.startsWith(key) && +d.slice(8) <= dia).length;
+  const cur = {...soma(ate(mes)), novos: novos(mes)}, prev = {...soma(ate(ant)), novos: novos(ant)};
+  const meses = Array.from({length: 6}, (_, i) => monthAdd(mes, i - 5)).map(k => ({k, rec: rows.filter(x => x.a.data.startsWith(k)).reduce((s, x) => s + x.v, 0), parcial: k === mes}));
+  const doMes = rows.filter(x => x.a.data.startsWith(mes));
+  const agrupa = fn => { const m = new Map(); doMes.forEach(x => { const k = fn(x); if (!k) return; const g = m.get(k) || {nome: k, rec: 0, n: 0}; g.rec += x.v; g.n++; m.set(k, g); }); return [...m.values()].sort((a, b) => b.rec - a.rec || b.n - a.n); };
+  const porServico = agrupa(x => (svc(x.a.servicoId) || {}).nome), porCategoria = agrupa(x => (svc(x.a.servicoId) || {}).cat);
+  const info = db.patients.filter(p => p.atend.length).map(p => { const l = lastAtend(p); return {p, l, dias: diffDays(t, l.data), gasto: p.atend.reduce((s, a) => s + (Number(a.valor) > 0 ? Number(a.valor) : 0), 0)}; });
+  const sumidos = info.filter(x => x.dias >= SUMIDA_DIAS && x.dias <= INATIVA_DIAS).sort((a, b) => b.gasto - a.gasto);
+  const inativos = info.filter(x => x.dias > INATIVA_DIAS).length;
+  const atrasados = info.filter(x => x.dias < SUMIDA_DIAS && x.l.retorno && x.l.retorno < t).map(x => ({...x, atraso: diffDays(t, x.l.retorno)})).sort((a, b) => b.atraso - a.atraso);
+  return {t, dia, mes, cur, prev, meses, porServico, porCategoria, sumidos, inativos, atrasados};
+}
+function chartSvg(meses){
+  const W = 360, H = 160, pb = 24, pt = 22, n = meses.length, bw = 34, gap = (W - n * bw) / (n + 1), max = Math.max(...meses.map(m => m.rec), 1);
+  const bars = meses.map((m, i) => { const h = Math.max(2, (H - pb - pt) * m.rec / max), x = gap + i * (bw + gap), y = H - pb - h;
+    return `<rect class="bar${m.parcial ? ' partial' : ''}" x="${x}" y="${y}" width="${bw}" height="${h}" rx="4"/><text class="val" x="${x + bw / 2}" y="${y - 6}" text-anchor="middle">${m.rec ? short(m.rec) : '0'}</text><text class="mes" x="${x + bw / 2}" y="${H - 6}" text-anchor="middle">${MES[+m.k.slice(5) - 1]}</text>`; }).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Receita dos últimos 6 meses">${bars}<line class="base" x1="0" x2="${W}" y1="${H - pb}" y2="${H - pb}"/></svg>`;
+}
+const rankHtml = (rows, max) => rows.length ? `<div class="rank">${rows.map(r => `<div class="r"><div class="top"><span class="nm">${esc(r.nome)}</span><span class="vl"><b>${money0(r.rec)}</b> · ${r.n}x</span></div><div class="track"><i style="width:${Math.max(3, Math.round(r.rec / max * 100))}%"></i></div></div>`).join('')}</div>` : '<div class="empty">Sem atendimentos neste mês ainda.</div>';
+
 function viewInicio(app){
-  const t = today(), mes = t.slice(0, 7);
-  const todos = db.patients.flatMap(p => p.atend.map(a => ({p, a})));
-  const doMes = todos.filter(x => x.a.data.startsWith(mes)).length;
-  const retornos = db.patients.map(p => ({p, a: lastAtend(p)})).filter(x => x.a && x.a.retorno && diffDays(x.a.retorno, t) <= 14).sort((x, y) => x.a.retorno.localeCompare(y.a.retorno)).slice(0, 8);
-  const recentes = todos.sort((x, y) => y.a.data.localeCompare(x.a.data)).slice(0, 5);
-  const demo = db.patients.some(p => p.demo);
+  const D = dashData(), {cur, prev, t, dia} = D, demo = db.patients.some(p => p.demo);
+  const K = [
+    {l: 'Receita', v: money0(cur.rec), a: cur.rec, b: prev.rec},
+    {l: 'Atendimentos', v: cur.n, a: cur.n, b: prev.n, abs: true},
+    {l: 'Ticket médio', v: money0(cur.ticket), a: cur.ticket, b: prev.ticket},
+    {l: 'Pacientes novos', v: cur.novos, a: cur.novos, b: prev.novos, abs: true},
+  ].map(k => ({...k, rel: k.b > 0 ? (k.a - k.b) / k.b : null, dif: k.a - k.b}));
+  const delta = k => { const cls = k.dif > 0.0001 ? 'up' : k.dif < -0.0001 ? 'down' : 'flat';
+    if (k.abs) return {cls, txt: k.dif === 0 ? '= mês anterior' : (k.dif > 0 ? '▲ +' : '▼ −') + Math.abs(k.dif) + ' vs mês anterior'};
+    if (k.rel == null) return {cls: 'flat', txt: '— sem base no mês anterior'};
+    return {cls, txt: (cls === 'flat' ? '= ' : cls === 'up' ? '▲ ' : '▼ ') + Math.abs(Math.round(k.rel * 100)) + '% vs mês anterior'}; };
+  const mesNome = new Date(+D.mes.slice(0, 4), +D.mes.slice(5) - 1, 1).toLocaleDateString('pt-BR', {month: 'long'});
+  const maxS = Math.max(...D.porServico.map(x => x.rec), 1), maxC = Math.max(...D.porCategoria.map(x => x.rec), 1);
+  const linha = (x, tipo) => { const s = svc(x.l.servicoId), nome = esc(x.p.nome), link = waLink(x.p, tipo === 'sumida' ? MSG_SUMIDA : MSG_RETORNO, s && s.nome);
+    return `<div class="item static"><a class="avatar" href="#paciente-${x.p.id}" aria-label="Abrir ficha de ${nome}" style="text-decoration:none">${esc(initials(x.p.nome))}</a><div class="grow"><a class="t" href="#paciente-${x.p.id}" style="color:inherit;text-decoration:none">${nome}</a><div class="m">${tipo === 'sumida' ? 'última visita há ' + x.dias + ' dias' : esc(s ? s.nome : 'Retorno') + ' · venceu há ' + x.atraso + ' dias'}</div></div>${link ? `<a class="btn small" href="${link}" target="_blank" rel="noopener">Chamar</a>` : '<span class="pill">sem telefone</span>'}</div>`; };
+  const lista = (rows, tipo, vazio) => rows.length ? `<div class="list">${rows.slice(0, 6).map(x => linha(x, tipo)).join('')}${rows.length > 6 ? `<div class="empty" style="padding:10px">e mais ${rows.length - 6}</div>` : ''}</div>` : `<div class="list"><div class="empty">${vazio}</div></div>`;
+  const receitaK = K[0], alerta = receitaK.rel != null && receitaK.rel <= -0.15 ? `<div class="alert" role="alert">Receita ${Math.abs(Math.round(receitaK.rel * 100))}% abaixo do mesmo período do mês anterior</div>` : '';
+  const comBase = K.filter(k => k.rel != null), melhor = comBase.filter(k => k.rel > 0).sort((a, b) => b.rel - a.rel)[0], pior = comBase.filter(k => k.rel < 0).sort((a, b) => a.rel - b.rel)[0];
+  const fmtK = k => `${k.l} ${k.rel > 0 ? '+' : '−'}${Math.abs(Math.round(k.rel * 100))}%`;
+  const acoes = [D.atrasados.length ? `chamar ${D.atrasados.length} ${D.atrasados.length === 1 ? 'paciente com retorno vencido' : 'pacientes com retorno vencido'}` : '', D.sumidos.length ? `reativar ${D.sumidos.length} ${D.sumidos.length === 1 ? 'paciente sumido' : 'pacientes sumidos'}` : ''].filter(Boolean);
   app.innerHTML = `
     <div><h1>Olá, Rose</h1><p class="sub">${new Date().toLocaleDateString('pt-BR', {weekday: 'long', day: 'numeric', month: 'long'})}</p></div>
-    ${demo ? `<div class="note"><span>Modo de teste com pacientes de exemplo. Os dados ficam só neste aparelho.</span><button class="btn small" id="rm-demo" type="button">Remover exemplos</button></div>` : ''}
-    <div class="stats">
-      <div class="stat"><b>${db.patients.length}</b><span>pacientes</span></div>
-      <div class="stat"><b>${doMes}</b><span>atendimentos no mês</span></div>
-      <div class="stat"><b>${retornos.length}</b><span>retornos em 14 dias</span></div>
-    </div>
-    <section><h2>Retornos próximos</h2>${retornos.length ? `<div class="list">${retornos.map(({p, a}) => { const d = diffDays(a.retorno, t); const s = svc(a.servicoId); return `<a class="item" href="#paciente-${p.id}"><div class="avatar">${esc(initials(p.nome))}</div><div class="grow"><div class="t">${esc(p.nome)}</div><div class="m">${esc(s ? s.nome : 'Atendimento')} · ${fmtD(a.retorno)}</div></div><span class="pill ${d < 0 ? 'late' : d <= 3 ? 'soon' : ''}">${d < 0 ? Math.abs(d) + 'd atrasado' : d === 0 ? 'hoje' : 'em ' + d + 'd'}</span></a>`; }).join('')}</div>` : `<div class="list"><div class="empty">Nenhum retorno previsto para as próximas duas semanas.</div></div>`}</section>
-    <section><h2>Últimos atendimentos</h2>${recentes.length ? `<div class="list">${recentes.map(({p, a}) => { const s = svc(a.servicoId); return `<a class="item" href="#paciente-${p.id}"><div class="grow"><div class="t">${esc(p.nome)}</div><div class="m">${esc(s ? s.nome : '')} · ${fmtD(a.data)}</div></div><div class="price">${a.valor !== '' && a.valor != null ? money(a.valor) : ''}</div></a>`; }).join('')}</div>` : `<div class="list"><div class="empty">Os atendimentos registrados aparecem aqui.</div></div>`}</section>`;
+    ${demo ? `<div class="note"><span>Modo de teste com pacientes de exemplo. Não cadastre pacientes reais aqui: nada fica protegido por login.</span><button class="btn small" id="rm-demo" type="button">Remover exemplos</button></div>` : ''}
+    <section><h2>${esc(mesNome)} até o dia ${dia}</h2>
+      <div class="kpis">${K.map(k => { const d = delta(k); return `<div class="kpi"><span class="lbl">${k.l}</span><b>${k.v}</b><span class="delta ${d.cls}">${d.txt}</span></div>`; }).join('')}</div></section>
+    <section><h2>Receita dos últimos 6 meses</h2><div class="card chart">${chartSvg(D.meses)}<p class="src" style="margin-top:4px">Barra tracejada: mês em andamento.</p></div></section>
+    <section><h2>Serviços que mais faturam em ${esc(mesNome)}</h2><div class="card">${rankHtml(D.porServico.slice(0, 6), maxS)}</div></section>
+    <section><h2>Receita por categoria</h2><div class="card">${rankHtml(D.porCategoria, maxC)}</div></section>
+    <section><h2>O que merece atenção</h2><div style="display:flex;flex-direction:column;gap:14px">${alerta}
+      <div><div class="subh"><h2>Retornos vencidos</h2><span class="pill ${D.atrasados.length ? 'late' : ''}">${D.atrasados.length}</span></div>${lista(D.atrasados, 'retorno', 'Nenhum retorno vencido.')}</div>
+      <div><div class="subh"><h2>Pacientes sumidos (${SUMIDA_DIAS}+ dias)</h2><span class="pill ${D.sumidos.length ? 'soon' : ''}">${D.sumidos.length}</span></div>${lista(D.sumidos, 'sumida', 'Ninguém sumido por enquanto.')}${D.inativos ? `<p class="src">${D.inativos} ${D.inativos === 1 ? 'paciente inativo' : 'pacientes inativos'} há mais de 1 ano não aparecem aqui.</p>` : ''}</div></div></section>
+    <section><h2>Resumo</h2><div class="card"><ul class="sumario">
+      <li><span class="tag ok">Melhorou</span><span>${melhor ? esc(fmtK(melhor)) : 'Nada acima do mês anterior até agora.'}</span></li>
+      <li><span class="tag bad">Piorou</span><span>${pior ? esc(fmtK(pior)) : 'Nada abaixo do mês anterior até agora.'}</span></li>
+      <li><span class="tag act">Exige ação</span><span>${acoes.length ? esc(acoes.join(' e ')) : 'Nenhuma pendência de retorno ou reativação.'}</span></li></ul></div></section>
+    <p class="src">Fonte: atendimentos registrados no app. A receita soma só atendimentos com valor informado. Comparação: dias 1 a ${dia} deste mês contra dias 1 a ${dia} do mês anterior. Paciente novo: primeira visita registrada no app. Sumido: última visita entre ${SUMIDA_DIAS} dias e 1 ano.</p>`;
   const rm = $('#rm-demo'); if (rm) rm.onclick = () => { db.patients = db.patients.filter(p => !p.demo); save(); route(); toast('Exemplos removidos'); };
 }
 
@@ -257,29 +322,94 @@ function serviceForm(s){
 }
 
 
-/* ---------- login, nuvem e inicialização ---------- */
+/* ---------- login, segundo fator, nuvem e inicialização ---------- */
+const IDLE_MIN = 15;
+const demoOk = import.meta.env.DEV || import.meta.env.VITE_DEMO === '1';
+const flag = (k, v) => { try { if (v === undefined) { const r = sessionStorage.getItem(k); sessionStorage.removeItem(k); return r; } sessionStorage.setItem(k, v); } catch (e) {} return null; };
 const setSync = st => { const e = $('#sync'); if (!e) return; const t = {pending: 'Alterações pendentes', syncing: 'Salvando…', ok: 'Salvo na nuvem', error: 'Sem conexão. Tentando de novo'}[st] || ''; e.textContent = t; e.className = 'sync' + (st === 'error' ? ' error' : ''); };
-function chrome(on){ $('.tabs').hidden = !on; $('#logout').hidden = !on || !cloud; }
+let cloudStep = false;
+function chrome(on){ $('.tabs').hidden = !on; $('#logout').hidden = !(on || cloudStep) || !cloud; }
+const authErr = e => e && e.status >= 400 && e.status < 500 ? 'Dados incorretos ou código expirado.' : 'Não foi possível conectar. Verifique a internet e tente de novo.';
+const logoutBtn = () => { const b = $('#logout'); b.hidden = false; };
+
+async function gate(){
+  let st; try { st = await cloud.authState(); } catch (e) { st = 'login'; }
+  cloudStep = st === 'enroll' || st === 'challenge'; chrome(false);
+  if (st === 'login') return viewLogin();
+  if (st === 'enroll') return viewEnroll();
+  if (st === 'challenge') return viewChallenge();
+  cloudStep = false; return startCloud();
+}
 function viewLogin(){
-  chrome(false);
+  const idle = flag('rc-idle');
   $('#app').innerHTML = `<div class="login card form"><h1 style="font-size:20px">Entrar</h1><p class="sub" style="margin:-6px 0 0">Acesso restrito à equipe da clínica.</p>
+    ${idle ? '<div class="note">Sessão encerrada por inatividade.</div>' : ''}
     ${field('l-mail', 'E-mail', '', 'email', 'autocomplete="username" inputmode="email"')}${field('l-pass', 'Senha', '', 'password', 'autocomplete="current-password"')}
     <p class="sub" id="l-err" style="color:var(--bad);margin:0" hidden></p><button class="btn" id="l-ok" type="button">Entrar</button></div>`;
   const go = async () => { const b = $('#l-ok'); b.disabled = true; $('#l-err').hidden = true;
-    try { await cloud.signIn(val('l-mail'), $('#l-pass').value); await startCloud(); }
-    catch (e) { $('#l-err').textContent = e && e.status >= 400 && e.status < 500 ? 'E-mail ou senha incorretos.' : 'Não foi possível conectar. Verifique a internet e tente de novo.'; $('#l-err').hidden = false; b.disabled = false; } };
+    try { await cloud.signIn(val('l-mail'), $('#l-pass').value); await gate(); }
+    catch (e) { $('#l-err').textContent = authErr(e); $('#l-err').hidden = false; b.disabled = false; } };
   $('#l-ok').onclick = go; $('#l-pass').onkeydown = e => { if (e.key === 'Enter') go(); };
+}
+/* o Supabase devolve o SVG com aspas no endereço; recodifica para uma imagem segura */
+function qrSrc(qr){
+  if (!/^data:image\/svg\+xml/i.test(qr)) return qr;
+  const raw = qr.slice(qr.indexOf(',') + 1); let svg; try { svg = decodeURIComponent(raw); } catch (e) { svg = raw; }
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+}
+async function viewEnroll(){
+  logoutBtn();
+  $('#app').innerHTML = '<div class="login card form"><p class="sub" style="margin:0">Preparando a verificação em dois passos…</p></div>';
+  let f; try { f = await cloud.enroll(); } catch (e) { $('#app').innerHTML = '<div class="login card form"><p style="margin:0">Não foi possível iniciar. Verifique a internet.</p><button class="btn" id="retry" type="button">Tentar de novo</button></div>'; $('#retry').onclick = viewEnroll; return; }
+  $('#app').innerHTML = `<div class="login card form"><h1 style="font-size:20px">Proteja o acesso</h1>
+    <p class="sub" style="margin:-6px 0 0">Os dados dos pacientes são de saúde. Além da senha, o app pede um código de 6 dígitos que muda a cada 30 segundos.</p>
+    <ol class="sub" style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px"><li>Instale um app autenticador (Google Authenticator, Microsoft Authenticator ou Authy).</li><li>Escaneie o QR code abaixo. Se quiser um reserva, escaneie também em outro celular agora.</li><li>Digite o código que aparece no app.</li></ol>
+    <div style="display:grid;place-items:center;background:#fff;border-radius:12px;padding:10px"><img id="m-qr" alt="QR code para o app autenticador" width="190" height="190"></div>
+    <div class="f"><label>Ou digite esta chave</label><code style="overflow-wrap:anywhere;font-size:13px;user-select:all">${esc(f.secret)}</code></div>
+    ${field('m-code', 'Código de 6 dígitos', '', 'text', 'inputmode="numeric" autocomplete="one-time-code" maxlength="7"')}
+    <p class="sub" id="m-err" style="color:var(--bad);margin:0" hidden></p><button class="btn" id="m-ok" type="button">Ativar e entrar</button></div>`;
+  $('#m-qr').src = qrSrc(f.qr);
+  const go = async () => { const b = $('#m-ok'); b.disabled = true; $('#m-err').hidden = true;
+    try { await cloud.verifyCode(f.factorId, val('m-code')); cloudStep = false; await startCloud(); }
+    catch (e) { $('#m-err').textContent = authErr(e); $('#m-err').hidden = false; b.disabled = false; } };
+  $('#m-ok').onclick = go; $('#m-code').onkeydown = e => { if (e.key === 'Enter') go(); };
+}
+async function viewChallenge(){
+  logoutBtn();
+  $('#app').innerHTML = `<div class="login card form"><h1 style="font-size:20px">Código de verificação</h1><p class="sub" style="margin:-6px 0 0">Abra o app autenticador e digite o código de 6 dígitos.</p>
+    ${field('m-code', 'Código', '', 'text', 'inputmode="numeric" autocomplete="one-time-code" maxlength="7"')}
+    <p class="sub" id="m-err" style="color:var(--bad);margin:0" hidden></p><button class="btn" id="m-ok" type="button">Confirmar</button></div>`;
+  $('#m-code').focus();
+  const go = async () => { const b = $('#m-ok'); b.disabled = true; $('#m-err').hidden = true;
+    try { await cloud.verifyCode(await cloud.factorId(), val('m-code')); cloudStep = false; await startCloud(); }
+    catch (e) { $('#m-err').textContent = authErr(e); $('#m-err').hidden = false; b.disabled = false; } };
+  $('#m-ok').onclick = go; $('#m-code').onkeydown = e => { if (e.key === 'Enter') go(); };
 }
 async function startCloud(){
   chrome(true); $('#app').innerHTML = '<p class="sub">Carregando…</p>';
-  try { db = await cloud.load(SERVICES); route(); }
+  try { db = await cloud.load(SERVICES); armIdle(); route(); }
   catch (e) { console.error(e); $('#app').innerHTML = '<div class="card form"><p style="margin:0">Não foi possível carregar os dados. Verifique a conexão.</p><button class="btn" id="retry" type="button">Tentar de novo</button></div>'; $('#retry').onclick = startCloud; }
 }
+/* saída automática: computador esquecido aberto não expõe pacientes */
+let idleTimer = null, idleArmed = false;
+async function idleOut(){
+  if (cloud.pending) { await cloud.flush(); if (cloud.pending) { idleTimer = setTimeout(idleOut, 30000); return; } }
+  flag('rc-idle', '1'); try { await cloud.signOut(); } catch (e) {} location.reload();
+}
+function armIdle(){
+  const bump = () => { clearTimeout(idleTimer); idleTimer = setTimeout(idleOut, IDLE_MIN * 60000); };
+  if (!idleArmed) { idleArmed = true; ['pointerdown', 'keydown', 'touchstart', 'scroll'].forEach(ev => window.addEventListener(ev, bump, {passive: true, capture: true})); }
+  bump();
+}
+function viewConfig(){
+  chrome(false);
+  $('#app').innerHTML = '<div class="login card form"><h1 style="font-size:20px">Configuração pendente</h1><p style="margin:0">Faltam as variáveis do Supabase neste ambiente. Por segurança, o app não abre sem login. Veja o README, passo 3.</p></div>';
+}
 async function boot(){
-  if (!cloud) { db = localLoad() || seed(); chrome(true); route(); return; }
+  if (!cloud) { if (!demoOk) return viewConfig(); db = localLoad() || seed(); chrome(true); route(); return; }
   cloud.onStatus(setSync); cloud.onSignOut(() => location.reload());
   $('#logout').onclick = async () => { await cloud.signOut(); location.reload(); };
-  (await cloud.session()) ? startCloud() : viewLogin();
+  gate();
   document.addEventListener('visibilitychange', async () => { /* traz mudanças feitas em outro aparelho */
     if (document.visibilityState !== 'visible' || !cloud.ready || cloud.pending || Date.now() - cloud.loadedAt < 60000) return;
     if (!$('#sheet').hidden || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
@@ -288,4 +418,4 @@ async function boot(){
   window.addEventListener('beforeunload', e => { if (cloud.pending) { e.preventDefault(); e.returnValue = ''; } });
 }
 boot();
-if ('serviceWorker' in navigator && import.meta.env.PROD) navigator.serviceWorker.register('/sw.js').catch(() => {});
+if ('serviceWorker' in navigator && import.meta.env.PROD && cloud) navigator.serviceWorker.register('/sw.js').catch(() => {});
