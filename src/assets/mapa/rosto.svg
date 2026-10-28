@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 320" role="group" aria-label="Mapa do rosto: frente e perfil">
+  <!--
+    EXEMPLO PROVISÓRIO. Para trocar pelo desenho final, substitua este arquivo.
+    Regra: cada área clicável é um elemento com data-r (código único) e data-nome (nome que aparece na ficha).
+    O resto do desenho (contorno, textos, traços) é livre.
+  -->
+  <defs>
+    <g id="rosto-frente">
+      <ellipse cx="100" cy="112" rx="64" ry="84"/>
+      <ellipse cx="34" cy="120" rx="9" ry="18"/>
+      <ellipse cx="166" cy="120" rx="9" ry="18"/>
+      <rect x="78" y="184" width="44" height="50" rx="14"/>
+    </g>
+    <g id="rosto-perfil">
+      <path d="M96 40C140 34 164 66 160 110C158 128 164 136 172 146L164 150C166 156 164 160 162 162C164 168 162 172 158 174C160 182 152 192 138 194C128 200 110 200 96 192C64 186 40 150 40 108C40 70 62 44 96 40Z"/>
+      <rect x="70" y="186" width="52" height="50" rx="14"/>
+    </g>
+  </defs>
+
+  <text x="110" y="22" text-anchor="middle">FRENTE</text>
+  <text x="330" y="22" text-anchor="middle">PERFIL</text>
+
+  <g transform="translate(10 36)">
+    <use href="#rosto-frente" class="borda"/><use href="#rosto-frente" class="miolo"/>
+    <g class="traco">
+      <path d="M62 92Q76 84 90 92M110 92Q124 84 138 92"/>
+      <ellipse cx="76" cy="104" rx="12" ry="5.5"/><ellipse cx="124" cy="104" rx="12" ry="5.5"/>
+      <path d="M100 108L96 146Q100 152 106 146"/>
+      <path d="M82 166Q100 174 118 166"/>
+    </g>
+    <g class="regioes">
+      <rect data-r="r-testa" data-nome="Testa" x="56" y="40" width="88" height="34" rx="16"/>
+      <rect data-r="r-glabela" data-nome="Glabela (entre as sobrancelhas)" x="90" y="78" width="20" height="18" rx="9"/>
+      <ellipse data-r="r-olheira-d" data-nome="Olheira direita" cx="76" cy="118" rx="16" ry="8"/>
+      <ellipse data-r="r-olheira-e" data-nome="Olheira esquerda" cx="124" cy="118" rx="16" ry="8"/>
+      <ellipse data-r="r-malar-d" data-nome="Malar direito (maçã do rosto)" cx="60" cy="140" rx="17" ry="15"/>
+      <ellipse data-r="r-malar-e" data-nome="Malar esquerdo (maçã do rosto)" cx="140" cy="140" rx="17" ry="15"/>
+      <rect data-r="r-nariz" data-nome="Nariz" x="92" y="108" width="16" height="42" rx="8"/>
+      <ellipse data-r="r-sulco-d" data-nome="Sulco nasogeniano direito" cx="80" cy="158" rx="7" ry="14"/>
+      <ellipse data-r="r-sulco-e" data-nome="Sulco nasogeniano esquerdo" cx="120" cy="158" rx="7" ry="14"/>
+      <ellipse data-r="r-labios" data-nome="Lábios" cx="100" cy="170" rx="20" ry="9"/>
+      <ellipse data-r="r-mento" data-nome="Queixo (mento)" cx="100" cy="190" rx="16" ry="9"/>
+      <ellipse data-r="r-mandibula-d" data-nome="Mandíbula direita" cx="58" cy="172" rx="11" ry="20"/>
+      <ellipse data-r="r-mandibula-e" data-nome="Mandíbula esquerda" cx="142" cy="172" rx="11" ry="20"/>
+      <rect data-r="r-pescoco" data-nome="Pescoço" x="80" y="204" width="40" height="28" rx="14"/>
+    </g>
+  </g>
+
+  <g transform="translate(230 36)">
+    <use href="#rosto-perfil" class="borda"/><use href="#rosto-perfil" class="miolo"/>
+    <g class="traco"><ellipse cx="136" cy="100" rx="10" ry="5"/><path d="M118 90Q130 84 144 90"/><path d="M152 168Q158 170 162 168"/></g>
+    <g class="regioes">
+      <ellipse data-r="p-testa" data-nome="Testa (perfil)" cx="134" cy="66" rx="20" ry="18"/>
+      <ellipse data-r="p-tempora" data-nome="Têmpora (perfil)" cx="96" cy="92" rx="16" ry="16"/>
+      <ellipse data-r="p-malar" data-nome="Malar (perfil)" cx="136" cy="128" rx="16" ry="14"/>
+      <ellipse data-r="p-nariz" data-nome="Nariz (perfil)" cx="166" cy="142" rx="10" ry="12"/>
+      <ellipse data-r="p-labios" data-nome="Lábios (perfil)" cx="158" cy="164" rx="8" ry="8"/>
+      <ellipse data-r="p-mento" data-nome="Queixo (perfil)" cx="148" cy="184" rx="12" ry="9"/>
+      <ellipse data-r="p-mandibula" data-nome="Mandíbula (perfil)" cx="104" cy="170" rx="22" ry="14"/>
+      <ellipse data-r="p-papada" data-nome="Papada" cx="116" cy="204" rx="22" ry="10"/>
+    </g>
+  </g>
+</svg>

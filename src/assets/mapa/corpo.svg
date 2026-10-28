@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 540" role="group" aria-label="Mapa do corpo: frente e costas">
+  <!--
+    EXEMPLO PROVISÓRIO. Para trocar pelo desenho final, substitua este arquivo.
+    Regra: cada área clicável é um elemento com data-r (código único) e data-nome (nome que aparece na ficha).
+    O resto do desenho (contorno, textos, traços) é livre.
+  -->
+  <defs>
+    <g id="manequim">
+      <circle cx="100" cy="28" r="22"/>
+      <rect x="91" y="48" width="18" height="16" rx="7"/>
+      <rect x="54" y="62" width="92" height="112" rx="38"/>
+      <rect x="66" y="150" width="68" height="70" rx="26"/>
+      <rect x="56" y="200" width="88" height="66" rx="30"/>
+      <rect x="24" y="68" width="26" height="184" rx="13"/>
+      <rect x="150" y="68" width="26" height="184" rx="13"/>
+      <rect x="58" y="258" width="44" height="120" rx="21"/>
+      <rect x="98" y="258" width="44" height="120" rx="21"/>
+      <rect x="62" y="370" width="36" height="106" rx="17"/>
+      <rect x="102" y="370" width="36" height="106" rx="17"/>
+    </g>
+  </defs>
+
+  <text x="110" y="22" text-anchor="middle">FRENTE</text>
+  <text x="330" y="22" text-anchor="middle">COSTAS</text>
+
+  <g transform="translate(10 40)">
+    <use href="#manequim" class="borda"/><use href="#manequim" class="miolo"/>
+    <g class="regioes">
+      <rect data-r="f-colo" data-nome="Colo" x="72" y="64" width="56" height="26" rx="13"/>
+      <rect data-r="f-busto" data-nome="Busto e peitoral" x="60" y="92" width="80" height="50" rx="22"/>
+      <rect data-r="f-abd-sup" data-nome="Abdômen superior" x="68" y="142" width="64" height="34" rx="16"/>
+      <rect data-r="f-abd-inf" data-nome="Abdômen inferior" x="68" y="178" width="64" height="36" rx="16"/>
+      <rect data-r="f-quadril-d" data-nome="Quadril direito" x="56" y="214" width="36" height="48" rx="18"/>
+      <rect data-r="f-quadril-e" data-nome="Quadril esquerdo" x="108" y="214" width="36" height="48" rx="18"/>
+      <rect data-r="f-braco-d" data-nome="Braço direito" x="24" y="70" width="26" height="96" rx="13"/>
+      <rect data-r="f-braco-e" data-nome="Braço esquerdo" x="150" y="70" width="26" height="96" rx="13"/>
+      <rect data-r="f-antebraco-d" data-nome="Antebraço direito" x="24" y="168" width="26" height="84" rx="13"/>
+      <rect data-r="f-antebraco-e" data-nome="Antebraço esquerdo" x="150" y="168" width="26" height="84" rx="13"/>
+      <rect data-r="f-coxa-d" data-nome="Coxa direita" x="58" y="266" width="44" height="100" rx="20"/>
+      <rect data-r="f-coxa-e" data-nome="Coxa esquerda" x="98" y="266" width="44" height="100" rx="20"/>
+      <rect data-r="f-perna-d" data-nome="Perna direita" x="62" y="372" width="36" height="104" rx="17"/>
+      <rect data-r="f-perna-e" data-nome="Perna esquerda" x="102" y="372" width="36" height="104" rx="17"/>
+    </g>
+  </g>
+
+  <g transform="translate(230 40)">
+    <use href="#manequim" class="borda"/><use href="#manequim" class="miolo"/>
+    <g class="regioes">
+      <rect data-r="t-nuca" data-nome="Nuca" x="72" y="64" width="56" height="24" rx="12"/>
+      <rect data-r="t-costas-sup" data-nome="Costas superior" x="58" y="90" width="84" height="56" rx="24"/>
+      <rect data-r="t-lombar" data-nome="Lombar" x="66" y="146" width="68" height="56" rx="24"/>
+      <rect data-r="t-gluteo-e" data-nome="Glúteo esquerdo" x="56" y="204" width="44" height="58" rx="22"/>
+      <rect data-r="t-gluteo-d" data-nome="Glúteo direito" x="100" y="204" width="44" height="58" rx="22"/>
+      <rect data-r="t-braco-e" data-nome="Braço esquerdo (posterior)" x="24" y="70" width="26" height="96" rx="13"/>
+      <rect data-r="t-braco-d" data-nome="Braço direito (posterior)" x="150" y="70" width="26" height="96" rx="13"/>
+      <rect data-r="t-coxa-e" data-nome="Coxa posterior esquerda" x="58" y="266" width="44" height="100" rx="20"/>
+      <rect data-r="t-coxa-d" data-nome="Coxa posterior direita" x="98" y="266" width="44" height="100" rx="20"/>
+      <rect data-r="t-panturrilha-e" data-nome="Panturrilha esquerda" x="62" y="372" width="36" height="104" rx="17"/>
+      <rect data-r="t-panturrilha-d" data-nome="Panturrilha direita" x="102" y="372" width="36" height="104" rx="17"/>
+    </g>
+  </g>
+</svg>

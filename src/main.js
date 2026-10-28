@@ -1,6 +1,8 @@
 import './style.css';
 import SERVICES from './services.json';
 import { cloud } from './lib/cloud.js';
+import corpoSvg from './assets/mapa/corpo.svg?raw';
+import rostoSvg from './assets/mapa/rosto.svg?raw';
 import { preencher as preencherContrato, faltando as faltandoContrato, novoToken, cpfValido } from './lib/contrato.js';
 
 const KEY = 'rc-clinica-v1';
@@ -68,9 +70,9 @@ const val = id => { const e = document.getElementById(id); return e ? e.value.tr
 /* ---------- rotas ---------- */
 let ptab = 'dados';
 function route(){
-  const h = location.hash.slice(1) || 'inicio';
+  const h = location.hash.slice(1) || 'agenda';
   const m = h.match(/^paciente-([\w-]+)$/);
-  const tab = m ? 'pacientes' : (['inicio','agenda','pacientes','servicos','lembretes'].includes(h) ? h : 'inicio');
+  const tab = m ? 'pacientes' : (['agenda','pacientes','servicos','lembretes','financeiro'].includes(h) ? h : 'agenda');
   $$('.tabs a').forEach(a => a.dataset.tab === tab ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'));
   const app = $('#app');
   if (m) { const p = db.patients.find(x => x.id === m[1]); p ? viewPaciente(app, p) : (location.hash = '#pacientes'); }
@@ -78,9 +80,11 @@ function route(){
   else if (tab === 'servicos') viewServicos(app);
   else if (tab === 'lembretes') viewLembretes(app);
   else if (tab === 'agenda') viewAgenda(app);
-  else viewInicio(app);
+  else if (tab === 'financeiro') viewFinanceiro(app);
+  else viewAgenda(app);
+  badge();
 }
-window.addEventListener('hashchange', () => { ptab = 'dados'; closeSheet(); route(); window.scrollTo(0, 0); });
+window.addEventListener('hashchange', () => { ptab = 'dados'; agSel = null; closeSheet(); route(); window.scrollTo(0, 0); const a = $('#app'); a.classList.remove('entra'); void a.offsetWidth; a.classList.add('entra'); });
 
 /* ---------- início: painel de gestão ---------- */
 const SUMIDA_DIAS = 90, INATIVA_DIAS = 365;
@@ -134,18 +138,33 @@ function chartSvg(meses){
 }
 const rankHtml = (rows, max) => rows.length ? `<div class="rank">${rows.map(r => `<div class="r"><div class="top"><span class="nm">${esc(r.nome)}</span><span class="vl"><b>${money0(r.rec)}</b> · ${r.n}x</span></div><div class="track"><i style="width:${Math.max(3, Math.round(r.rec / max * 100))}%"></i></div></div>`).join('')}</div>` : '<div class="empty">Sem atendimentos neste mês ainda.</div>';
 
-function viewInicio(app){
-  const D = dashData(), {cur, prev, t, dia} = D, demo = db.patients.some(p => p.demo);
+const saudacao = () => { const h = new Date().getHours(); return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'; };
+const ICO_SINO = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 17V11a6 6 0 0 1 12 0v6l1.5 2h-15z"/><path d="M10 21h4"/></svg>';
+/* número de lembretes pendentes na aba */
+function badge(){
+  const a = $('.tabs a[data-tab="lembretes"]'); if (!a || !db.patients.length) return;
+  const n = lembretesData().filter(x => !x.sent).length; let b = a.querySelector('.bdg');
+  if (!n) { if (b) b.remove(); a.removeAttribute('aria-label'); return; }
+  if (!b) { b = document.createElement('span'); b.className = 'bdg'; b.setAttribute('aria-hidden', 'true'); a.append(b); }
+  b.textContent = n > 99 ? '99+' : n; a.setAttribute('aria-label', 'Lembretes, ' + n + ' para enviar');
+}
+const demoNoteHtml = () => db.patients.some(p => p.demo) ? `<div class="note"><span>Modo de teste com pacientes de exemplo. Não cadastre pacientes reais aqui: nada fica protegido por login.</span><button class="btn small" id="rm-demo" type="button">Remover exemplos</button></div>` : '';
+function demoBind(){
+  const rm = $('#rm-demo'); if (rm) rm.onclick = () => { db.patients = db.patients.filter(p => !p.demo); db.msgs = db.msgs.filter(m => db.patients.some(p => p.id === m.pid)); db.agenda = db.agenda.filter(a => db.patients.some(p => p.id === a.pid)); db.pacotes = db.pacotes.filter(k => db.patients.some(p => p.id === k.pid)); save(); route(); toast('Exemplos removidos'); };
+}
+function viewFinanceiro(app){
+  const D = dashData(), {cur, prev, t, dia} = D;
   const K = [
     {l: 'Receita', v: money0(cur.rec), a: cur.rec, b: prev.rec},
     {l: 'Atendimentos', v: cur.n, a: cur.n, b: prev.n, abs: true},
     {l: 'Ticket médio', v: money0(cur.ticket), a: cur.ticket, b: prev.ticket},
     {l: 'Pacientes novos', v: cur.novos, a: cur.novos, b: prev.novos, abs: true},
   ].map(k => ({...k, rel: k.b > 0 ? (k.a - k.b) / k.b : null, dif: k.a - k.b}));
+  const AR = {up: '<svg class="ar" viewBox="0 0 10 10" aria-hidden="true"><path d="M5 2 9 8H1z"/></svg>', down: '<svg class="ar" viewBox="0 0 10 10" aria-hidden="true"><path d="M5 8 1 2h8z"/></svg>'};
   const delta = k => { const cls = k.dif > 0.0001 ? 'up' : k.dif < -0.0001 ? 'down' : 'flat';
-    if (k.abs) return {cls, txt: k.dif === 0 ? '= mês anterior' : (k.dif > 0 ? '▲ +' : '▼ −') + Math.abs(k.dif) + ' vs mês anterior'};
+    if (k.abs) return {cls, txt: k.dif === 0 ? '= mês anterior' : (k.dif > 0 ? AR.up + '+' : AR.down + '−') + Math.abs(k.dif) + ' vs mês anterior'};
     if (k.rel == null) return {cls: 'flat', txt: '— sem base no mês anterior'};
-    return {cls, txt: (cls === 'flat' ? '= ' : cls === 'up' ? '▲ ' : '▼ ') + Math.abs(Math.round(k.rel * 100)) + '% vs mês anterior'}; };
+    return {cls, txt: (cls === 'flat' ? '= ' : cls === 'up' ? AR.up : AR.down) + Math.abs(Math.round(k.rel * 100)) + '% vs mês anterior'}; };
   const mesNome = new Date(+D.mes.slice(0, 4), +D.mes.slice(5) - 1, 1).toLocaleDateString('pt-BR', {month: 'long'});
   const maxS = Math.max(...D.porServico.map(x => x.rec), 1), maxC = Math.max(...D.porCategoria.map(x => x.rec), 1);
   const linha = (x, tipo) => { const s = svc(x.l.servicoId), nome = esc(x.p.nome), link = waLink(x.p, tipo === 'sumida' ? tplOf('sumida') : tplOf('manutencao'), {servico: s && s.nome});
@@ -156,8 +175,7 @@ function viewInicio(app){
   const fmtK = k => `${k.l} ${k.rel > 0 ? '+' : '−'}${Math.abs(Math.round(k.rel * 100))}%`;
   const acoes = [D.atrasados.length ? `chamar ${D.atrasados.length} ${D.atrasados.length === 1 ? 'paciente com retorno vencido' : 'pacientes com retorno vencido'}` : '', D.sumidos.length ? `reativar ${D.sumidos.length} ${D.sumidos.length === 1 ? 'paciente sumido' : 'pacientes sumidos'}` : ''].filter(Boolean);
   app.innerHTML = `
-    <div><h1>Olá, Rose</h1><p class="sub">${new Date().toLocaleDateString('pt-BR', {weekday: 'long', day: 'numeric', month: 'long'})}</p></div>
-    ${demo ? `<div class="note"><span>Modo de teste com pacientes de exemplo. Não cadastre pacientes reais aqui: nada fica protegido por login.</span><button class="btn small" id="rm-demo" type="button">Remover exemplos</button></div>` : ''}
+    <div><h1>Gestão financeira</h1><p class="sub">Como a clínica está indo neste mês</p></div>
     <section><h2>${esc(mesNome)} até o dia ${dia}</h2>
       <div class="kpis">${K.map(k => { const d = delta(k); return `<div class="kpi"><span class="lbl">${k.l}</span><b>${k.v}</b><span class="delta ${d.cls}">${d.txt}</span></div>`; }).join('')}</div></section>
     <section><h2>Receita dos últimos 6 meses</h2><div class="card chart">${chartSvg(D.meses)}<p class="src" style="margin-top:4px">Barra tracejada: mês em andamento.</p></div></section>
@@ -171,7 +189,6 @@ function viewInicio(app){
       <li><span class="tag bad">Piorou</span><span>${pior ? esc(fmtK(pior)) : 'Nada abaixo do mês anterior até agora.'}</span></li>
       <li><span class="tag act">Exige ação</span><span>${acoes.length ? esc(acoes.join(' e ')) : 'Nenhuma pendência de retorno ou reativação.'}</span></li></ul></div></section>
     <p class="src">Fonte: atendimentos registrados no app. A receita soma só atendimentos com valor informado. Comparação: dias 1 a ${dia} deste mês contra dias 1 a ${dia} do mês anterior. Paciente novo: primeira visita registrada no app. Sumido: última visita entre ${SUMIDA_DIAS} dias e 1 ano.</p>`;
-  const rm = $('#rm-demo'); if (rm) rm.onclick = () => { db.patients = db.patients.filter(p => !p.demo); db.msgs = db.msgs.filter(m => db.patients.some(p => p.id === m.pid)); db.agenda = db.agenda.filter(a => db.patients.some(p => p.id === a.pid)); db.pacotes = db.pacotes.filter(k => db.patients.some(p => p.id === k.pid)); save(); route(); toast('Exemplos removidos'); };
 }
 
 /* ---------- pacientes ---------- */
@@ -273,14 +290,55 @@ function tabAval(b, p){
   $('#a-peso').oninput = imc; $('#a-alt').oninput = imc; imc();
   $('#a-ok').onclick = () => { p.aval = {data: val('a-data'), queixa: val('a-queixa'), obj: val('a-obj'), pele: val('a-pele'), foto: val('a-foto'), peso: val('a-peso'), altura: val('a-alt'), medidas: val('a-med'), obs: val('a-obs')}; save(); toast('Avaliação salva'); };
 }
+/* ---------- mapa de áreas: corpo (frente e costas) e rosto (frente e perfil) ----------
+   O desenho vem de src/assets/mapa/*.svg. Cada área clicável é um elemento com data-r (código) e data-nome (nome na ficha),
+   então trocar o desenho por outro, mantendo essa regra, não exige mexer no código. */
+const MAPAS = {corpo: corpoSvg, rosto: rostoSvg};
+const ICO_CORPO = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="4.8" r="2.3"/><path d="M8.2 21v-7.5L6.4 9.8c-.3-.8.3-1.6 1.1-1.6h9c.8 0 1.4.8 1.1 1.6l-1.8 3.7V21M10.6 21v-4.6h2.8V21"/></svg>';
+const ICO_ROSTO = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="11.5" rx="6.4" ry="8.3"/><path d="M9.3 10.2h.01M14.7 10.2h.01M9.6 15.2c1.5 1.1 3.3 1.1 4.8 0"/></svg>';
+const ICO_X = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg>';
+let mapaVis = 'corpo';
+function montaMapa(host, p){
+  const marcadas = k => new Set(((p.anam && p.anam.mapa) || {})[k] || []);
+  const grava = (k, set) => { p.anam = {...(p.anam || {}), mapa: {...((p.anam && p.anam.mapa) || {}), [k]: [...set]}}; save(); };
+  const total = k => marcadas(k).size;
+  host.innerHTML = `<h2 style="margin:0 0 10px">Áreas avaliadas</h2>
+    <div class="opts2" role="group" aria-label="Corpo ou rosto">${[['corpo', 'Corpo', ICO_CORPO], ['rosto', 'Rosto', ICO_ROSTO]].map(([k, l, ico]) => `<button class="opt" type="button" data-m="${k}" aria-pressed="${k === mapaVis}">${ico}<b>${l}</b><span class="m" data-n="${k}"></span></button>`).join('')}</div>
+    <div class="mapa-svg"></div>
+    <div class="marcadas" aria-live="polite"></div>
+    <p class="sub" style="margin:0">Toque nas áreas para marcar ou desmarcar. O que você marca já fica salvo.</p>`;
+  const svgHost = $('.mapa-svg', host), lista = $('.marcadas', host);
+  const pinta = () => {
+    const s = marcadas(mapaVis), regs = $$('[data-r]', svgHost);
+    regs.forEach(r => { const on = s.has(r.dataset.r); r.classList.toggle('on', on); r.setAttribute('aria-pressed', String(on)); });
+    ['corpo', 'rosto'].forEach(k => { const n = total(k); $(`[data-n="${k}"]`, host).textContent = n ? n + (n === 1 ? ' área' : ' áreas') : 'nenhuma marcada'; });
+    const ativas = regs.filter(r => r.classList.contains('on'));
+    lista.innerHTML = ativas.length ? ativas.map(r => `<button class="chip" type="button" data-x="${esc(r.dataset.r)}" aria-label="Tirar ${esc(r.dataset.nome)}">${esc(r.dataset.nome)}${ICO_X}</button>`).join('') + `<button class="btn ghost small" type="button" id="m-limpa">Limpar</button>` : '';
+    $$('[data-x]', lista).forEach(b => b.onclick = () => alterna(b.dataset.x));
+    const lm = $('#m-limpa', lista); if (lm) lm.onclick = () => { grava(mapaVis, new Set()); pinta(); };
+  };
+  const alterna = id => { const s = marcadas(mapaVis); s.has(id) ? s.delete(id) : s.add(id); grava(mapaVis, s); pinta(); };
+  const mostra = () => {
+    svgHost.innerHTML = MAPAS[mapaVis];
+    $$('[data-r]', svgHost).forEach(r => { r.setAttribute('role', 'button'); r.setAttribute('tabindex', '0'); r.setAttribute('aria-label', r.dataset.nome);
+      r.addEventListener('click', () => alterna(r.dataset.r));
+      r.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); alterna(r.dataset.r); } }); });
+    $$('.opt', host).forEach(o => o.setAttribute('aria-pressed', String(o.dataset.m === mapaVis)));
+    pinta();
+  };
+  $$('.opt', host).forEach(o => o.onclick = () => { mapaVis = o.dataset.m; mostra(); });
+  mostra();
+}
 function tabAnam(b, p){
   const a = p.anam || {};
-  b.innerHTML = `<div class="card form"><div>${ANAM.map(([k, l]) => { const v = a[k] || {}; return `<div class="yn"><div class="q"><span>${esc(l)}</span><div class="seg" data-k="${k}"><button type="button" data-v="n" aria-pressed="${v.r === 'n'}">Não</button><button type="button" data-v="s" aria-pressed="${v.r === 's'}">Sim</button></div></div><div class="f" ${v.r === 's' ? '' : 'hidden'} data-d="${k}"><input id="an-${k}" aria-label="Detalhes: ${esc(l)}" placeholder="Qual? Desde quando?" value="${esc(v.d || '')}"></div></div>`; }).join('')}</div>
+  b.innerHTML = `<div class="card mapa" id="mapa"></div><div class="card form"><div>${ANAM.map(([k, l]) => { const v = a[k] || {}; return `<div class="yn"><div class="q"><span>${esc(l)}</span><div class="seg" data-k="${k}"><button type="button" data-v="n" aria-pressed="${v.r === 'n'}">Não</button><button type="button" data-v="s" aria-pressed="${v.r === 's'}">Sim</button></div></div><div class="f" ${v.r === 's' ? '' : 'hidden'} data-d="${k}"><input id="an-${k}" aria-label="Detalhes: ${esc(l)}" placeholder="Qual? Desde quando?" value="${esc(v.d || '')}"></div></div>`; }).join('')}</div>
     <div class="two">${field('an-agua', 'Água por dia', a.agua, 'text', 'placeholder="ex.: 6 copos"')}${field('an-sono', 'Sono', a.sono, 'text', 'placeholder="ex.: 7h"')}</div>
     ${field('an-ativ', 'Atividade física', a.ativ)}${area('an-outras', 'Outras informações de saúde', a.outras)}
     <button class="btn" id="an-ok" type="button">Salvar anamnese</button></div>`;
+  montaMapa($('#mapa', b), p);
   $$('.seg', b).forEach(s => $$('button', s).forEach(btn => btn.onclick = () => { $$('button', s).forEach(x => x.setAttribute('aria-pressed', x === btn)); const d = $(`[data-d="${s.dataset.k}"]`, b); d.hidden = btn.dataset.v !== 's'; }));
   $('#an-ok').onclick = () => { const n = {}; ANAM.forEach(([k]) => { const on = $(`.seg[data-k="${k}"] [aria-pressed="true"]`, b); if (on) n[k] = {r: on.dataset.v, d: on.dataset.v === 's' ? val('an-' + k) : ''}; });
+    if (p.anam && p.anam.mapa) n.mapa = p.anam.mapa;
     Object.assign(n, {agua: val('an-agua'), sono: val('an-sono'), ativ: val('an-ativ'), outras: val('an-outras'), data: today()}); p.anam = n; save(); toast('Anamnese salva'); };
 }
 function tabAtend(b, p){
@@ -375,10 +433,11 @@ function viewLembretes(app){
   const L = lembretesData(), pend = L.filter(x => !x.sent), feitos = L.filter(x => x.sent).length;
   const nomeDe = id => (db.patients.find(p => p.id === id) || {nome: 'Paciente removida'}).nome;
   const linha = (x, i) => { const link = waLink(x.p, tplOf(x.tpl || x.tipo), x);
-    return `<div class="item static"><a class="avatar" href="#paciente-${x.p.id}" aria-label="Abrir ficha de ${esc(x.p.nome)}" style="text-decoration:none">${esc(initials(x.p.nome))}</a><div class="grow"><a class="t" href="#paciente-${x.p.id}" style="color:inherit;text-decoration:none">${esc(x.p.nome)}</a><div class="m"><b>${TIPO_NOME[x.tipo]}</b> · ${esc(x.det)}</div>${x.aviso ? `<div class="m" style="color:var(--warn)">${esc(x.aviso)}</div>` : ''}</div>${link ? `<a class="btn small" data-send="${i}" href="${link}" target="_blank" rel="noopener">WhatsApp</a>` : '<span class="pill">sem telefone</span>'}</div>`; };
+    return `<div class="item static"><a class="avatar" href="#paciente-${x.p.id}" aria-label="Abrir ficha de ${esc(x.p.nome)}" style="text-decoration:none">${esc(initials(x.p.nome))}</a><div class="grow"><a class="t" href="#paciente-${x.p.id}" style="color:inherit;text-decoration:none">${esc(x.p.nome)}</a><div class="m">${esc(x.det)}</div>${x.aviso ? `<div class="m" style="color:var(--warn)">${esc(x.aviso)}</div>` : ''}</div>${link ? `<a class="btn small" data-send="${i}" href="${link}" target="_blank" rel="noopener">WhatsApp</a>` : '<span class="pill">sem telefone</span>'}</div>`; };
+  const grupos = MSG_ORDEM.map(t => ({t, rows: pend.map((x, i) => ({x, i})).filter(r => r.x.tipo === t)})).filter(g => g.rows.length);
   const recentes = [...db.msgs].sort((a, b) => b.em.localeCompare(a.em)).slice(0, 8);
   app.innerHTML = `<div class="head"><div><h1>Lembretes</h1><p class="sub">${pend.length ? pend.length + ' para enviar hoje' : 'Nada para enviar agora'}${feitos ? ' · ' + feitos + ' já enviado' + (feitos > 1 ? 's' : '') : ''}</p></div><div class="actions"><button class="btn ghost small" id="l-tpl" type="button">Editar mensagens</button></div></div>
-    <section><div class="list">${pend.length ? pend.map(linha).join('') : '<div class="empty">Tudo em dia.</div>'}</div></section>
+    ${grupos.length ? grupos.map(g => `<section><div class="subh"><h2>${TIPO_NOME[g.t]}</h2><span class="pill">${g.rows.length}</span></div><div class="list">${g.rows.map(r => linha(r.x, r.i)).join('')}</div></section>`).join('') : '<section><div class="list"><div class="empty">Tudo em dia.</div></div></section>'}
     <section><h2>Enviados recentemente</h2><div class="list">${recentes.length ? recentes.map(m => `<div class="item static"><div class="grow"><span class="t">${esc(nomeDe(m.pid))}</span><div class="m">${TIPO_NOME[m.tipo] || 'Mensagem'} · ${new Date(m.em).toLocaleDateString('pt-BR')}</div></div></div>`).join('') : '<div class="empty">Nenhum envio registrado.</div>'}</div></section>
     <p class="src">O botão abre o WhatsApp com a mensagem pronta; quem envia é a Rose. Ao tocar, o envio fica registrado e o lembrete sai da lista. Aniversário no dia; manutenção até 3 dias antes do retorno; sumida a partir de ${SUMIDA_DIAS} dias sem vir. Procedimento: 1 dia antes do horário. Pagamento: 7 dias e 1 dia antes do vencimento da parcela, e uma vez por mês enquanto estiver atrasada. Fim de plano: 7 dias antes da validade do pacote, se ainda houver sessões.</p>`;
   $$('a[data-send]', app).forEach(a => a.onclick = () => { const x = pend[+a.dataset.send];
@@ -397,7 +456,6 @@ function tplForm(){
 /* ---------- agenda interna (a ligação com o Google entra depois, sem refazer) ---------- */
 const STATUS_AG = {agendado: 'Agendado', confirmado: 'Confirmado', realizado: 'Realizado', faltou: 'Faltou', cancelado: 'Cancelado'};
 const MOTIVOS = [['paciente', 'Pedido da paciente'], ['periodo', 'Período menstrual'], ['clinica', 'Imprevisto da clínica'], ['outro', 'Outro']];
-let agVer = 'prox';
 const agDia = s => s.slice(0, 10), agHora = s => s.slice(11, 16);
 const agMs = s => new Date(s).getTime(), agFim = a => agMs(a.ini) + (a.dur || 30) * 60000;
 const pacDe = id => db.patients.find(p => p.id === id);
@@ -410,28 +468,51 @@ function agAvisos(p, dia, hora, dur, ignorar){
   const ciclo = p ? cicloAviso(p, dia) : ''; if (ciclo) out.push(ciclo);
   return out.join(' ');
 }
+/* Agenda: é a tela inicial. Semana no topo, horários do dia escolhido embaixo. */
+let agSel = null;
+const DIAS_SEM = ['seg', 'ter', 'qua', 'qui', 'sex', 'sáb', 'dom'];
+const SETA_E = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6 8.5 12l6 6"/></svg>', SETA_D = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 6l6 6-6 6"/></svg>';
+const agFimHora = a => { const d = new Date(agMs(a.ini) + (a.dur || 30) * 60000); return pad(d.getHours()) + ':' + pad(d.getMinutes()); };
 function viewAgenda(app){
-  const t = today(), todas = [...db.agenda].sort((a, b) => a.ini.localeCompare(b.ini));
-  const rows = agVer === 'prox' ? todas.filter(a => agDia(a.ini) >= t) : todas.filter(a => agDia(a.ini) < t).reverse().slice(0, 40);
-  const grupos = []; rows.forEach(a => { const d = agDia(a.ini); let g = grupos[grupos.length - 1]; if (!g || g.d !== d) grupos.push(g = {d, rows: []}); g.rows.push(a); });
-  const linha = a => { const p = pacDe(a.pid), s = svc(a.sid), rem = (a.rem || []).length;
-    return `<button class="item" data-ag="${a.id}" type="button"><div class="avatar" style="width:auto;min-width:54px;border-radius:12px;padding:0 8px;font-size:13px">${agHora(a.ini)}</div><div class="grow"><span class="t">${esc(p ? p.nome : 'Paciente removida')}</span><div class="m">${esc(s ? s.nome : 'Sem serviço')}${rem ? ' · remarcado' + (rem > 1 ? ' ' + rem + 'x' : '') : ''}</div></div><span class="pill ${a.status === 'faltou' || a.status === 'cancelado' ? 'late' : a.status === 'agendado' ? 'soon' : ''}">${STATUS_AG[a.status]}</span></button>`; };
-  app.innerHTML = `<div class="head"><div><h1>Agenda</h1><p class="sub">${agVer === 'prox' ? rows.length + ' agendamento' + (rows.length === 1 ? '' : 's') + ' pela frente' : 'Últimos agendamentos'}</p></div><div class="actions"><button class="btn small" id="ag-novo" type="button">Novo agendamento</button></div></div>
-    <div class="seg" style="align-self:flex-start"><button type="button" data-v="prox" aria-pressed="${agVer === 'prox'}">Próximos</button><button type="button" data-v="pass" aria-pressed="${agVer === 'pass'}">Passados</button></div>
-    ${grupos.length ? grupos.map(g => `<section><h2>${esc(nomeDia(g.d))}</h2><div class="list">${g.rows.map(linha).join('')}</div></section>`).join('') : '<div class="list"><div class="empty">Nada por aqui.</div></div>'}
+  const t = today(); if (!agSel) agSel = t;
+  const porDia = new Map(); db.agenda.filter(a => a.status !== 'cancelado').forEach(a => { const d = agDia(a.ini); porDia.set(d, (porDia.get(d) || 0) + 1); });
+  const ini = addDays(agSel, -((parse(agSel).getDay() + 6) % 7)), semana = Array.from({length: 7}, (_, i) => addDays(ini, i));
+  const doDia = db.agenda.filter(a => agDia(a.ini) === agSel).sort((a, b) => a.ini.localeCompare(b.ini));
+  const ativos = doDia.filter(a => a.status !== 'cancelado'), agora = new Date().toTimeString().slice(0, 5);
+  const proximoHoje = agSel === t ? ativos.find(a => agHora(a.ini) >= agora && a.status !== 'realizado') : null;
+  const depois = db.agenda.filter(a => a.status !== 'cancelado' && agDia(a.ini) > agSel).sort((a, b) => a.ini.localeCompare(b.ini))[0];
+  const resumo = ativos.length ? ativos.length + (ativos.length === 1 ? ' horário' : ' horários') + (proximoHoje ? ' · próximo às ' + agHora(proximoHoje.ini) : '') : 'Nenhum horário marcado';
+  const linha = a => { const p = pacDe(a.pid), s = svc(a.sid), rem = (a.rem || []).length, off = a.status === 'cancelado' || a.status === 'faltou';
+    return `<button class="item${off ? ' apagado' : ''}" data-ag="${a.id}" type="button"><div class="hr">${agHora(a.ini)}<small>até ${agFimHora(a)}</small></div><div class="grow"><span class="t">${esc(p ? p.nome : 'Paciente removida')}</span><div class="m">${esc(s ? s.nome : 'Sem serviço')}${rem ? ' · remarcado' + (rem > 1 ? ' ' + rem + 'x' : '') : ''}</div></div><span class="pill ${a.status === 'faltou' || a.status === 'cancelado' ? 'late' : a.status === 'agendado' ? 'soon' : ''}">${STATUS_AG[a.status]}</span></button>`; };
+  const vazio = `<div class="empty">Dia livre.<div class="actions" style="justify-content:center;margin-top:12px"><button class="btn small" id="ag-vazio" type="button">Agendar neste dia</button>${depois ? `<button class="btn ghost small" id="ag-depois" type="button">Próximo: ${esc(nomeDia(agDia(depois.ini)).toLowerCase())}</button>` : ''}</div></div>`;
+  const nL = lembretesData().filter(x => !x.sent).length;
+  app.innerHTML = `<div class="head"><div><h1>${saudacao()}, Rose</h1><p class="sub">${new Date().toLocaleDateString('pt-BR', {weekday: 'long', day: 'numeric', month: 'long'})}</p></div><div class="actions"><button class="btn" id="ag-novo" type="button">Novo horário</button></div></div>
+    ${demoNoteHtml()}
+    <div class="semana"><button class="seta" id="ag-prev" type="button" aria-label="Semana anterior">${SETA_E}</button>
+      <div class="dias" role="group" aria-label="Dias da semana">${semana.map((d, i) => `<button class="dia${d === t ? ' hoje' : ''}${porDia.get(d) ? ' tem' : ''}" data-d="${d}" type="button" aria-pressed="${d === agSel}" aria-label="${esc(nomeDia(d))}${porDia.get(d) ? ', ' + porDia.get(d) + ' horários' : ''}"><small>${DIAS_SEM[i]}</small><b>${+d.slice(8)}</b><i></i></button>`).join('')}</div>
+      <button class="seta" id="ag-next" type="button" aria-label="Próxima semana">${SETA_D}</button></div>
+    <section><div class="subh"><div><h2 style="margin:0">${esc(agSel === t ? 'Hoje' : nomeDia(agSel))}</h2><p class="sub" style="margin:2px 0 0">${resumo}</p></div>${agSel !== t ? '<button class="btn ghost small" id="ag-hoje" type="button">Voltar para hoje</button>' : ''}</div>
+      <div class="list">${doDia.length ? doDia.map(linha).join('') : vazio}</div></section>
+    <div class="list"><a class="item" href="#lembretes"><div class="avatar">${ICO_SINO}</div><div class="grow"><span class="t">${nL ? nL + (nL === 1 ? ' lembrete para enviar' : ' lembretes para enviar') : 'Lembretes em dia'}</span><div class="m">${nL ? 'Mensagens prontas para o WhatsApp' : 'Nada para enviar agora'}</div></div>${nL ? `<span class="pill soon">${nL}</span>` : ''}</a></div>
     <p class="src">Agenda interna do painel. A ligação com o Google Agenda entra depois e usa estes mesmos agendamentos.</p>`;
-  $$('.seg button', app).forEach(b => b.onclick = () => { agVer = b.dataset.v; viewAgenda(app); });
+  const vai = d => { agSel = d; viewAgenda(app); };
+  $$('.dia', app).forEach(b => b.onclick = () => vai(b.dataset.d));
+  $('#ag-prev').onclick = () => vai(addDays(agSel, -7)); $('#ag-next').onclick = () => vai(addDays(agSel, 7));
+  const hoje = $('#ag-hoje'); if (hoje) hoje.onclick = () => vai(t);
+  const dep = $('#ag-depois'); if (dep) dep.onclick = () => vai(agDia(depois.ini));
+  const vz = $('#ag-vazio'); if (vz) vz.onclick = () => agNovo(null, agSel);
   $$('[data-ag]', app).forEach(b => b.onclick = () => agDetalhe(db.agenda.find(a => a.id === b.dataset.ag)));
-  $('#ag-novo').onclick = () => agNovo();
+  $('#ag-novo').onclick = () => agNovo(null, agSel);
+  demoBind();
 }
-function agNovo(pid){
+function agNovo(pid, dia){
   const p0 = pid ? pacDe(pid) : null, lista = [...db.patients].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   const optsP = q => lista.filter(p => !q || p.nome.toLowerCase().includes(q.toLowerCase())).slice(0, 60).map(p => `<option value="${p.id}">${esc(p.nome)}</option>`).join('');
   const optsS = CATS.map(c => `<optgroup label="${esc(c)}">${db.services.filter(s => s.cat === c).map(s => `<option value="${s.id}">${esc(s.nome)}</option>`).join('')}</optgroup>`).join('');
   openSheet('Novo agendamento', `<div class="form">
     ${p0 ? `<p class="t" style="margin:0;font-weight:700">${esc(p0.nome)}</p>` : `${field('a-q', 'Buscar paciente', '', 'search')}<div class="f"><label for="a-pac">Paciente</label><select id="a-pac">${optsP('')}</select></div>`}
     <div class="f"><label for="a-svc">Serviço</label><select id="a-svc"><option value="">Escolha um serviço</option>${optsS}</select></div>
-    <div class="two">${field('a-dia', 'Data', today(), 'date')}${field('a-hora', 'Hora', '09:00', 'time')}</div>
+    <div class="two">${field('a-dia', 'Data', dia || today(), 'date')}${field('a-hora', 'Hora', '09:00', 'time')}</div>
     ${field('a-dur', 'Duração (min)', 60, 'number', 'inputmode="numeric" min="5" step="5"')}${area('a-obs', 'Observações')}
     <p class="sub" id="a-aviso" role="status" style="margin:0;color:var(--warn)"></p>
     <div class="actions"><button class="btn" id="a-ok" type="button">Agendar</button></div></div>`);
