@@ -510,3 +510,6 @@ h2{margin-bottom:12px}
 .hero-ag .dg{display:inline-block;overflow:hidden;padding:.04em 0;margin:-.04em 0}
 .hero-ag .dg i{display:inline-block;font-style:normal}
 
+
+/* lembretes: botao compacto para o texto do horario nao ficar espremido */
+.item.static>.btn.small{flex:none;min-height:40px;padding:0 14px;font-size:13px}
