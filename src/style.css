@@ -477,8 +477,9 @@ h2{margin-bottom:12px}
   #app.entra>:nth-child(4){animation-delay:.12s}#app.entra>:nth-child(5){animation-delay:.16s}
   #app.entra>:nth-child(n+6){animation-delay:.2s}
   @keyframes sobe{from{opacity:0;transform:translateY(12px)}}
-  .hero-ag .big{animation:hora .7s var(--ease) .1s both}
-  @keyframes hora{from{opacity:0;transform:translateY(8px);filter:blur(6px)}}
+  .hero-ag .dg i{animation:rola .8s var(--ease) calc(.12s + var(--i)*.09s) both}
+  @keyframes rola{from{transform:translateY(78%);opacity:0;filter:blur(7px)}55%{opacity:1}}
+  .hero-ag .big small{animation:abre .5s var(--ease) .62s both}
   .ag-det{animation:abre .32s var(--ease) both}
   @keyframes abre{from{opacity:0;transform:translateY(-6px)}}
   .cal{animation:abre .34s var(--ease) both}
@@ -503,4 +504,9 @@ h2{margin-bottom:12px}
   .item:not(.static):hover{background:color-mix(in srgb,var(--tint) 40%,transparent)}
   .tabs a:not([aria-current="page"]):hover{color:var(--link);background:color-mix(in srgb,var(--tint) 45%,transparent)}
 }
+
+/* hora do hero: cada digito rola de baixo para o lugar, saindo do desfoque (uma vez, so nos digitos) */
+.hero-ag .rolo{display:inline-flex}
+.hero-ag .dg{display:inline-block;overflow:hidden;padding:.04em 0;margin:-.04em 0}
+.hero-ag .dg i{display:inline-block;font-style:normal}
 
