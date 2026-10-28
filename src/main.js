@@ -73,7 +73,7 @@ function route(){
   const h = location.hash.slice(1) || 'agenda';
   const m = h.match(/^paciente-([\w-]+)$/);
   const tab = m ? 'pacientes' : (['agenda','pacientes','servicos','lembretes','financeiro'].includes(h) ? h : 'agenda');
-  $$('.tabs a').forEach(a => a.dataset.tab === tab ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'));
+  $$('[data-tab]').forEach(a => a.dataset.tab === tab ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'));
   const app = $('#app');
   if (m) { const p = db.patients.find(x => x.id === m[1]); p ? viewPaciente(app, p) : (location.hash = '#pacientes'); }
   else if (tab === 'pacientes') viewPacientes(app);
@@ -84,7 +84,7 @@ function route(){
   else viewAgenda(app);
   badge();
 }
-window.addEventListener('hashchange', () => { ptab = 'dados'; agSel = null; closeSheet(); route(); window.scrollTo(0, 0); const a = $('#app'); a.classList.remove('entra'); void a.offsetWidth; a.classList.add('entra'); });
+window.addEventListener('hashchange', () => { ptab = 'dados'; dadosEdit = false; agSel = null; closeSheet(); route(); window.scrollTo(0, 0); const a = $('#app'); a.classList.remove('entra'); void a.offsetWidth; a.classList.add('entra'); });
 
 /* ---------- início: painel de gestão ---------- */
 const SUMIDA_DIAS = 90, INATIVA_DIAS = 365;
@@ -148,7 +148,7 @@ function badge(){
   if (!b) { b = document.createElement('span'); b.className = 'bdg'; b.setAttribute('aria-hidden', 'true'); a.append(b); }
   b.textContent = n > 99 ? '99+' : n; a.setAttribute('aria-label', 'Lembretes, ' + n + ' para enviar');
 }
-const demoNoteHtml = () => db.patients.some(p => p.demo) ? `<div class="note"><span>Modo de teste com pacientes de exemplo. Não cadastre pacientes reais aqui: nada fica protegido por login.</span><button class="btn small" id="rm-demo" type="button">Remover exemplos</button></div>` : '';
+const demoNoteHtml = () => db.patients.some(p => p.demo) ? `<div class="note fina"><span>Modo de teste: pacientes de exemplo, sem login.</span><button class="btn ghost small" id="rm-demo" type="button">Remover exemplos</button></div>` : '';
 function demoBind(){
   const rm = $('#rm-demo'); if (rm) rm.onclick = () => { db.patients = db.patients.filter(p => !p.demo); db.msgs = db.msgs.filter(m => db.patients.some(p => p.id === m.pid)); db.agenda = db.agenda.filter(a => db.patients.some(p => p.id === a.pid)); db.pacotes = db.pacotes.filter(k => db.patients.some(p => p.id === k.pid)); save(); route(); toast('Exemplos removidos'); };
 }
@@ -251,18 +251,49 @@ function importForm(){
 /* ---------- ficha do paciente ---------- */
 const TABS = [['dados', 'Dados'], ['aval', 'Avaliação'], ['anam', 'Anamnese'], ['atend', 'Atendimentos'], ['pacotes', 'Pacotes'], ['docs', 'Documentos'], ['ciclo', 'Ciclo']];
 const ANAM = [['gestante', 'Gestante ou lactante'], ['alergia', 'Alergias (medicamentos, látex, anestésicos, cosméticos)'], ['medic', 'Uso contínuo de medicamentos'], ['anticoag', 'Anticoagulante ou AAS'], ['diabetes', 'Diabetes'], ['hipert', 'Hipertensão'], ['tireoide', 'Alteração de tireoide'], ['cardio', 'Doença cardíaca ou marca-passo'], ['metal', 'Implantes metálicos ou próteses'], ['onco', 'Histórico oncológico'], ['autoimune', 'Doença autoimune'], ['queloide', 'Tendência a queloide ou má cicatrização'], ['herpes', 'Herpes labial recorrente'], ['isotret', 'Isotretinoína nos últimos 6 meses'], ['cirurgia', 'Cirurgias recentes ou plásticas'], ['procs', 'Procedimentos estéticos anteriores'], ['fuma', 'Fumante'], ['sol', 'Exposição solar frequente ou bronzeamento recente']];
+/* ficha da paciente: cabeçalho com contato e contexto, seções agrupadas (Dados, Clínico, Histórico) e Dados em leitura */
+let dadosEdit = false;
+const GRUPOS = [['dados', 'Dados', ['dados']], ['clinico', 'Clínico', ['aval', 'anam', 'ciclo']], ['hist', 'Histórico', ['atend', 'pacotes', 'docs']]];
+const telHref = t => 'tel:' + String(t || '').replace(/[^\d+]/g, '');
 function viewPaciente(app, p){
+  const grupo = GRUPOS.find(g => g[2].includes(ptab)) || GRUPOS[0], rot = k => (TABS.find(x => x[0] === k) || [k, k])[1];
+  const agoraIso = today() + 'T' + new Date().toTimeString().slice(0, 5);
+  const prox = db.agenda.filter(a => a.pid === p.id && a.status !== 'cancelado' && a.ini >= agoraIso).sort((a, b) => a.ini.localeCompare(b.ini))[0];
+  const ult = p.atend.length ? lastAtend(p) : null, us = ult && svc(ult.servicoId);
+  const zap = waLink(p, '', {}), dd = d => DIAS_SEM[(parse(d).getDay() + 6) % 7] + ', ' + +d.slice(8) + ' ' + MES[+d.slice(5, 7) - 1];
   app.innerHTML = `
     <div><a href="#pacientes" class="sub" style="text-decoration:none">&larr; Pacientes</a></div>
-    <div class="head"><div style="display:flex;gap:12px;align-items:center;min-width:0"><div class="avatar" style="width:48px;height:48px;font-size:17px">${esc(initials(p.nome))}</div><div style="min-width:0"><h1 style="font-size:20px;overflow-wrap:anywhere">${esc(p.nome)}</h1><p class="sub">${[age(p.nasc), p.tel].filter(Boolean).map(esc).join(' · ')}</p></div></div><button class="btn small" id="p-ag" type="button">Agendar</button></div>
-    <div class="chips" role="tablist">${TABS.map(([k, l]) => `<button class="chip" role="tab" data-t="${k}" aria-selected="${k === ptab}" type="button">${l}${k === 'atend' ? ' (' + p.atend.length + ')' : ''}</button>`).join('')}</div>
+    <div class="head"><div style="display:flex;gap:12px;align-items:center;min-width:0"><div class="avatar" style="width:48px;height:48px;font-size:17px">${esc(initials(p.nome))}</div><div style="min-width:0"><h1 style="font-size:20px;overflow-wrap:anywhere">${esc(p.nome)}</h1><p class="sub">${[esc(age(p.nasc)), p.tel ? `<a href="${esc(telHref(p.tel))}">${esc(p.tel)}</a>` : ''].filter(Boolean).join(' · ')}</p></div></div>
+      <div class="actions">${zap ? `<a class="btn ghost small" href="${zap}" target="_blank" rel="noopener">${ICO_BALAO}WhatsApp</a>` : ''}<button class="btn small" id="p-ag" type="button">Agendar</button></div></div>
+    <p class="ctx"><span>Próximo: <b>${prox ? dd(agDia(prox.ini)) + ' · ' + agHora(prox.ini) : 'sem horário marcado'}</b></span><span>Último: <b>${ult ? esc((us ? us.nome : 'Atendimento') + ' · ' + fmtD(ult.data).slice(0, 5)) : 'nenhum atendimento'}</b></span></p>
+    <div class="chips" role="tablist" aria-label="Seções da ficha">${GRUPOS.map(g => `<button class="chip" role="tab" data-g="${g[0]}" aria-selected="${g === grupo}" type="button">${g[1]}</button>`).join('')}</div>
+    ${grupo[2].length > 1 ? `<div class="chips" role="tablist" aria-label="${esc(grupo[1])}">${grupo[2].map(k => `<button class="chip peq" role="tab" data-t="${k}" aria-selected="${k === ptab}" type="button">${rot(k)}${k === 'atend' ? ' (' + p.atend.length + ')' : ''}</button>`).join('')}</div>` : ''}
     <div id="pbody"></div>`;
-  $$('.chip', app).forEach(c => c.onclick = () => { ptab = c.dataset.t; viewPaciente(app, p); });
+  $$('[data-g]', app).forEach(c => c.onclick = () => { const g = GRUPOS.find(x => x[0] === c.dataset.g); if (!g[2].includes(ptab)) { ptab = g[2][0]; dadosEdit = false; } viewPaciente(app, p); });
+  $$('[data-t]', app).forEach(c => c.onclick = () => { ptab = c.dataset.t; viewPaciente(app, p); });
   $('#p-ag').onclick = () => agNovo(p.id);
   const b = $('#pbody');
   ({dados: tabDados, aval: tabAval, anam: tabAnam, atend: tabAtend, pacotes: tabPacotes, docs: tabDocs, ciclo: tabCiclo})[ptab](b, p);
 }
 function tabDados(b, p){
+  if (dadosEdit) return dadosForm(b, p);
+  const img = p.img === 'sim' ? 'Autorizado' : p.img === 'nao' ? 'Não autorizado' : '';
+  const linha = (l, v) => `<div class="dl"><dt>${l}</dt><dd>${v ? v : '<span class="vazio">não informado</span>'}</dd></div>`;
+  const faltam = [!p.cpf && 'CPF', !p.rg && 'RG', !p.end && 'endereço', !p.cep && 'CEP'].filter(Boolean);
+  b.innerHTML = `<div class="card"><dl class="dados">
+    ${linha('WhatsApp', p.tel && `<a href="${esc(telHref(p.tel))}">${esc(p.tel)}</a>`)}
+    ${linha('Nascimento', p.nasc && esc(fmtD(p.nasc) + (age(p.nasc) ? ' · ' + age(p.nasc) : '')))}
+    ${linha('CPF', esc(p.cpf || ''))}${linha('RG', esc(p.rg || ''))}
+    ${linha('Endereço', esc([p.end, p.cep].filter(Boolean).join(' · ')))}
+    ${linha('Instagram', esc(p.insta || ''))}${linha('Como conheceu', esc(p.origem || ''))}
+    ${linha('Uso de imagem', img && esc(img + (p.imgEm ? ' em ' + fmtD(p.imgEm) : '')))}
+    ${linha('Dados e imagens', p.lgpd && p.lgpd.ok && esc('Termo assinado em ' + fmtD(p.lgpd.data)))}
+    ${linha('Observações', esc(p.obs || ''))}</dl>
+    ${faltam.length ? `<p class="sub" style="margin:10px 0 0">Para gerar o contrato falta: ${faltam.join(', ')}.</p>` : ''}
+    <div class="actions" style="margin-top:14px"><button class="btn" id="d-edit" type="button">Editar dados</button></div></div>`;
+  $('#d-edit').onclick = () => { dadosEdit = true; tabDados(b, p); };
+}
+function dadosForm(b, p){
   b.innerHTML = `<div class="card form">${field('d-nome', 'Nome completo', p.nome)}
     <div class="two">${field('d-tel', 'WhatsApp', p.tel, 'tel', 'inputmode="tel"')}${field('d-nasc', 'Nascimento', p.nasc, 'date')}</div>
     <div class="two">${field('d-cpf', 'CPF', p.cpf, 'text', 'inputmode="numeric"')}${field('d-rg', 'RG', p.rg)}</div>
@@ -271,10 +302,11 @@ function tabDados(b, p){
     <div class="two">${field('d-insta', 'Instagram', p.insta)}${field('d-origem', 'Como conheceu', p.origem)}</div>
     ${area('d-obs', 'Observações', p.obs)}
     <label class="check"><input type="checkbox" id="d-lgpd" ${p.lgpd && p.lgpd.ok ? 'checked' : ''}><span>Paciente autorizou o uso dos dados e das imagens (termo assinado)${p.lgpd && p.lgpd.ok ? `<br><span class="sub">Registrado em ${fmtD(p.lgpd.data)}</span>` : ''}</span></label>
-    <div class="actions"><button class="btn" id="d-ok" type="button">Salvar</button><button class="btn danger" id="d-del" type="button">Excluir paciente</button></div></div>`;
+    <div class="actions"><button class="btn" id="d-ok" type="button">Salvar</button><button class="btn ghost" id="d-cancel" type="button">Cancelar</button><button class="btn danger" id="d-del" type="button">Excluir paciente</button></div></div>`;
   $('#d-ok').onclick = () => { const nome = val('d-nome'); if (!nome) return toast('Informe o nome'); if (!cpfValido(val('d-cpf'))) return toast('CPF inválido: confira os números');
     const ok = $('#d-lgpd').checked; Object.assign(p, {nome, tel: val('d-tel'), nasc: val('d-nasc'), cpf: val('d-cpf'), rg: val('d-rg'), end: val('d-end'), cep: val('d-cep'), img: val('d-img'), imgEm: val('d-img') === (p.img || '') ? (p.imgEm || '') : (val('d-img') ? today() : ''), insta: val('d-insta'), origem: val('d-origem'), obs: val('d-obs')});
-    p.lgpd = {ok, data: ok ? ((p.lgpd && p.lgpd.ok && p.lgpd.data) || today()) : ''}; save(); route(); toast('Salvo'); };
+    p.lgpd = {ok, data: ok ? ((p.lgpd && p.lgpd.ok && p.lgpd.data) || today()) : ''}; dadosEdit = false; save(); route(); toast('Salvo'); };
+  $('#d-cancel').onclick = () => { dadosEdit = false; tabDados(b, p); };
   arm($('#d-del'), () => { db.patients = db.patients.filter(x => x.id !== p.id); db.msgs = db.msgs.filter(m => m.pid !== p.id); db.agenda = db.agenda.filter(a => a.pid !== p.id); db.pacotes = db.pacotes.filter(k => k.pid !== p.id); save(); location.hash = '#pacientes'; });
 }
 function tabAval(b, p){
@@ -408,6 +440,7 @@ function tabCiclo(b, p){
 
 /* ---------- lembretes por WhatsApp (a Rose só toca em enviar) ---------- */
 const TIPO_NOME = {aniversario: 'Aniversário', manutencao: 'Manutenção', sumida: 'Sumida', procedimento: 'Procedimento', pagamento: 'Pagamento', pagamento_atraso: 'Pagamento em atraso', fim_plano: 'Fim de plano', contrato: 'Contrato'};
+const URG = ['procedimento', 'pagamento', 'fim_plano', 'aniversario', 'manutencao', 'sumida'];
 const MSG_ORDEM = ['aniversario', 'manutencao', 'sumida', 'procedimento', 'pagamento', 'pagamento_atraso', 'fim_plano', 'contrato'];
 function lembretesData(){
   const t = today(), D = dashData(), out = [];
@@ -427,14 +460,14 @@ function lembretesData(){
     if (k.validade && k.usadas < k.total) { const d = diffDays(k.validade, t);
       if (d >= 0 && d <= 7) add(p, 'fim_plano', 'fim_plano:' + k.id + ':' + k.validade, nome + ' · plano termina em ' + fmtD(k.validade).slice(0, 5) + ' (faltam ' + (k.total - k.usadas) + ' sessões)', {servico: nome, data: k.validade}); } });
   D.sumidos.forEach(x => add(x.p, 'sumida', 'sumida:' + t.slice(0, 7), 'última visita há ' + x.dias + ' dias'));
-  return out.sort((a, b) => a.sent - b.sent || MSG_ORDEM.indexOf(a.tipo) - MSG_ORDEM.indexOf(b.tipo));
+  return out.sort((a, b) => a.sent - b.sent || URG.indexOf(a.tipo) - URG.indexOf(b.tipo) || (a.tpl === 'pagamento_atraso' ? 0 : 1) - (b.tpl === 'pagamento_atraso' ? 0 : 1));
 }
 function viewLembretes(app){
   const L = lembretesData(), pend = L.filter(x => !x.sent), feitos = L.filter(x => x.sent).length;
   const nomeDe = id => (db.patients.find(p => p.id === id) || {nome: 'Paciente removida'}).nome;
   const linha = (x, i) => { const link = waLink(x.p, tplOf(x.tpl || x.tipo), x);
     return `<div class="item static"><a class="avatar" href="#paciente-${x.p.id}" aria-label="Abrir ficha de ${esc(x.p.nome)}" style="text-decoration:none">${esc(initials(x.p.nome))}</a><div class="grow"><a class="t" href="#paciente-${x.p.id}" style="color:inherit;text-decoration:none">${esc(x.p.nome)}</a><div class="m">${esc(x.det)}</div>${x.aviso ? `<div class="m" style="color:var(--warn)">${esc(x.aviso)}</div>` : ''}</div>${link ? `<a class="btn small" data-send="${i}" href="${link}" target="_blank" rel="noopener">WhatsApp</a>` : '<span class="pill">sem telefone</span>'}</div>`; };
-  const grupos = MSG_ORDEM.map(t => ({t, rows: pend.map((x, i) => ({x, i})).filter(r => r.x.tipo === t)})).filter(g => g.rows.length);
+  const grupos = URG.map(t => ({t, rows: pend.map((x, i) => ({x, i})).filter(r => r.x.tipo === t)})).filter(g => g.rows.length);
   const recentes = [...db.msgs].sort((a, b) => b.em.localeCompare(a.em)).slice(0, 8);
   app.innerHTML = `<div class="head"><div><h1>Lembretes</h1><p class="sub">${pend.length ? pend.length + ' para enviar hoje' : 'Nada para enviar agora'}${feitos ? ' · ' + feitos + ' já enviado' + (feitos > 1 ? 's' : '') : ''}</p></div><div class="actions"><button class="btn ghost small" id="l-tpl" type="button">Editar mensagens</button></div></div>
     ${grupos.length ? grupos.map(g => `<section><div class="subh"><h2>${TIPO_NOME[g.t]}</h2><span class="pill">${g.rows.length}</span></div><div class="list">${g.rows.map(r => linha(r.x, r.i)).join('')}</div></section>`).join('') : '<section><div class="list"><div class="empty">Tudo em dia.</div></div></section>'}
@@ -473,8 +506,13 @@ let agSel = null;
 const DIAS_SEM = ['seg', 'ter', 'qua', 'qui', 'sex', 'sáb', 'dom'];
 const SETA_E = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6 8.5 12l6 6"/></svg>', SETA_D = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 6l6 6-6 6"/></svg>';
 const agFimHora = a => { const d = new Date(agMs(a.ini) + (a.dur || 30) * 60000); return pad(d.getHours()) + ':' + pad(d.getMinutes()); };
+const ICO_BALAO = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h14v10H11l-4 3.5v-3.5H5z"/></svg>';
+const agLembrete = a => ({chave: 'procedimento:' + a.id + ':' + a.ini, p: pacDe(a.pid), s: svc(a.sid)});
+const agLembrado = a => db.msgs.some(m => m.pid === a.pid && m.chave === agLembrete(a).chave);
+/* horário de amanhã que ainda aceita o lembrete de WhatsApp: vivo, com telefone */
+const agLembravel = a => (a.status === 'agendado' || a.status === 'confirmado') && agDia(a.ini) === addDays(today(), 1) && !!((pacDe(a.pid) || {}).tel);
 function viewAgenda(app){
-  const t = today(); if (!agSel) agSel = t;
+  const t = today(), amanha = addDays(t, 1); if (!agSel) agSel = t;
   const porDia = new Map(); db.agenda.filter(a => a.status !== 'cancelado').forEach(a => { const d = agDia(a.ini); porDia.set(d, (porDia.get(d) || 0) + 1); });
   const ini = addDays(agSel, -((parse(agSel).getDay() + 6) % 7)), semana = Array.from({length: 7}, (_, i) => addDays(ini, i));
   const doDia = db.agenda.filter(a => agDia(a.ini) === agSel).sort((a, b) => a.ini.localeCompare(b.ini));
@@ -482,27 +520,32 @@ function viewAgenda(app){
   const proximoHoje = agSel === t ? ativos.find(a => agHora(a.ini) >= agora && a.status !== 'realizado') : null;
   const depois = db.agenda.filter(a => a.status !== 'cancelado' && agDia(a.ini) > agSel).sort((a, b) => a.ini.localeCompare(b.ini))[0];
   const resumo = ativos.length ? ativos.length + (ativos.length === 1 ? ' horário' : ' horários') + (proximoHoje ? ' · próximo às ' + agHora(proximoHoje.ini) : '') : 'Nenhum horário marcado';
-  const linha = a => { const p = pacDe(a.pid), s = svc(a.sid), rem = (a.rem || []).length, off = a.status === 'cancelado' || a.status === 'faltou';
-    return `<button class="item${off ? ' apagado' : ''}" data-ag="${a.id}" type="button"><div class="hr">${agHora(a.ini)}<small>até ${agFimHora(a)}</small></div><div class="grow"><span class="t">${esc(p ? p.nome : 'Paciente removida')}</span><div class="m">${esc(s ? s.nome : 'Sem serviço')}${rem ? ' · remarcado' + (rem > 1 ? ' ' + rem + 'x' : '') : ''}</div></div><span class="pill ${a.status === 'faltou' || a.status === 'cancelado' ? 'late' : a.status === 'agendado' ? 'soon' : ''}">${STATUS_AG[a.status]}</span></button>`; };
+  const paraLembrar = db.agenda.filter(a => agLembravel(a) && !agLembrado(a)).length;
+  const linha = a => { const p = pacDe(a.pid), s = svc(a.sid), rem = (a.rem || []).length, off = a.status === 'cancelado' || a.status === 'faltou', L = agLembrete(a);
+    const acao = agLembravel(a) ? (agLembrado(a) ? '<span class="pill">Lembrete enviado</span>'
+      : `<a class="btn ghost small" data-lembrar="${a.id}" href="${waLink(p, tplOf('procedimento'), {servico: s && s.nome, data: agDia(a.ini), hora: agHora(a.ini)})}" target="_blank" rel="noopener">${ICO_BALAO}Lembrar pelo WhatsApp</a>`) : '';
+    return `<div class="item ag${off ? ' apagado' : ''}"><button class="ag-main" data-ag="${a.id}" type="button"><div class="hr">${agHora(a.ini)}<small>até ${agFimHora(a)}</small></div><div class="grow"><span class="t">${esc(p ? p.nome : 'Paciente removida')}</span><div class="m">${esc(s ? s.nome : 'Sem serviço')}${rem ? ' · remarcado' + (rem > 1 ? ' ' + rem + 'x' : '') : ''}</div></div><span class="pill ${a.status === 'faltou' || a.status === 'cancelado' ? 'late' : a.status === 'agendado' ? 'soon' : ''}">${STATUS_AG[a.status]}</span></button>${acao ? `<div class="ag-acao">${acao}</div>` : ''}</div>`; };
   const vazio = `<div class="empty">Dia livre.<div class="actions" style="justify-content:center;margin-top:12px"><button class="btn small" id="ag-vazio" type="button">Agendar neste dia</button>${depois ? `<button class="btn ghost small" id="ag-depois" type="button">Próximo: ${esc(nomeDia(agDia(depois.ini)).toLowerCase())}</button>` : ''}</div></div>`;
-  const nL = lembretesData().filter(x => !x.sent).length;
-  app.innerHTML = `<div class="head"><div><h1>${saudacao()}, Rose</h1><p class="sub">${new Date().toLocaleDateString('pt-BR', {weekday: 'long', day: 'numeric', month: 'long'})}</p></div><div class="actions"><button class="btn" id="ag-novo" type="button">Novo horário</button></div></div>
+  const nL = lembretesData().filter(x => !x.sent).length, dh = new Date();
+  app.innerHTML = `<div class="saud"><h1>${saudacao()}, Rose</h1><p class="sub">${DIAS_SEM[(dh.getDay() + 6) % 7]}, ${dh.getDate()} ${MES[dh.getMonth()]}</p></div>
     ${demoNoteHtml()}
     <div class="semana"><button class="seta" id="ag-prev" type="button" aria-label="Semana anterior">${SETA_E}</button>
       <div class="dias" role="group" aria-label="Dias da semana">${semana.map((d, i) => `<button class="dia${d === t ? ' hoje' : ''}${porDia.get(d) ? ' tem' : ''}" data-d="${d}" type="button" aria-pressed="${d === agSel}" aria-label="${esc(nomeDia(d))}${porDia.get(d) ? ', ' + porDia.get(d) + ' horários' : ''}"><small>${DIAS_SEM[i]}</small><b>${+d.slice(8)}</b><i></i></button>`).join('')}</div>
       <button class="seta" id="ag-next" type="button" aria-label="Próxima semana">${SETA_D}</button></div>
+    ${paraLembrar && agSel !== amanha ? `<button class="faixa" id="ag-amanha" type="button">${ICO_BALAO}<span>Amanhã: lembrar ${paraLembrar} ${paraLembrar === 1 ? 'paciente' : 'pacientes'}</span><span class="pill soon">${paraLembrar}</span></button>` : ''}
     <section><div class="subh"><div><h2 style="margin:0">${esc(agSel === t ? 'Hoje' : nomeDia(agSel))}</h2><p class="sub" style="margin:2px 0 0">${resumo}</p></div>${agSel !== t ? '<button class="btn ghost small" id="ag-hoje" type="button">Voltar para hoje</button>' : ''}</div>
       <div class="list">${doDia.length ? doDia.map(linha).join('') : vazio}</div></section>
-    <div class="list"><a class="item" href="#lembretes"><div class="avatar">${ICO_SINO}</div><div class="grow"><span class="t">${nL ? nL + (nL === 1 ? ' lembrete para enviar' : ' lembretes para enviar') : 'Lembretes em dia'}</span><div class="m">${nL ? 'Mensagens prontas para o WhatsApp' : 'Nada para enviar agora'}</div></div>${nL ? `<span class="pill soon">${nL}</span>` : ''}</a></div>
-    <p class="src">Agenda interna do painel. A ligação com o Google Agenda entra depois e usa estes mesmos agendamentos.</p>`;
+    <div class="list"><a class="item" href="#lembretes"><div class="avatar">${ICO_SINO}</div><div class="grow"><span class="t">${nL ? nL + (nL === 1 ? ' lembrete para enviar' : ' lembretes para enviar') : 'Lembretes em dia'}</span><div class="m">${nL ? 'Mensagens prontas para o WhatsApp' : 'Nada para enviar agora'}</div></div>${nL ? `<span class="pill soon">${nL}</span>` : ''}</a></div>`;
   const vai = d => { agSel = d; viewAgenda(app); };
   $$('.dia', app).forEach(b => b.onclick = () => vai(b.dataset.d));
   $('#ag-prev').onclick = () => vai(addDays(agSel, -7)); $('#ag-next').onclick = () => vai(addDays(agSel, 7));
   const hoje = $('#ag-hoje'); if (hoje) hoje.onclick = () => vai(t);
+  const am = $('#ag-amanha'); if (am) am.onclick = () => vai(amanha);
   const dep = $('#ag-depois'); if (dep) dep.onclick = () => vai(agDia(depois.ini));
   const vz = $('#ag-vazio'); if (vz) vz.onclick = () => agNovo(null, agSel);
   $$('[data-ag]', app).forEach(b => b.onclick = () => agDetalhe(db.agenda.find(a => a.id === b.dataset.ag)));
-  $('#ag-novo').onclick = () => agNovo(null, agSel);
+  $$('[data-lembrar]', app).forEach(a => a.onclick = () => { const x = db.agenda.find(y => y.id === a.dataset.lembrar), L = agLembrete(x);
+    registrarEnvio(x.pid, 'procedimento', L.chave, msgText(L.p, tplOf('procedimento'), {servico: L.s && L.s.nome, data: agDia(x.ini), hora: agHora(x.ini)})); setTimeout(() => viewAgenda(app), 400); });
   demoBind();
 }
 function agNovo(pid, dia){
@@ -792,5 +835,7 @@ async function boot(){
   });
   window.addEventListener('beforeunload', e => { if (cloud.pending) { e.preventDefault(); e.returnValue = ''; } });
 }
+/* botao + da barra: novo horario (na ficha de uma paciente, ja para ela; na Agenda, no dia escolhido) */
+$('#mais').onclick = () => { const m = location.hash.slice(1).match(/^paciente-([\w-]+)$/); if (m) return agNovo(m[1]); agNovo(null, (location.hash.slice(1) || 'agenda') === 'agenda' ? agSel : null); };
 boot();
 if ('serviceWorker' in navigator && import.meta.env.PROD && cloud) navigator.serviceWorker.register('/sw.js').catch(() => {});
