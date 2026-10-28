@@ -414,3 +414,58 @@ h2{margin-bottom:12px}
 
 
 .ag-acao .btn{white-space:nowrap;font-size:13.5px;padding:6px 14px}
+
+/* ===== Agenda: proximo atendimento em destaque, detalhes em cada horario e calendario do mes ===== */
+.so-md{display:none}
+@media (min-width:768px){.so-md{display:grid}}
+.semana{gap:6px}
+.dia{min-height:54px;padding:8px 0 6px}
+.calbtn{flex:none;width:48px;height:54px;border-radius:18px;border:1px solid var(--glassb);background:var(--glass2);color:var(--link);display:grid;place-items:center;cursor:pointer;box-shadow:var(--glassh)}
+.calbtn[aria-expanded="true"]{background:var(--btn);color:var(--btn-fg);border-color:transparent}
+.calbtn .ico{width:22px;height:22px}
+.hero-ag{padding:20px;display:flex;flex-direction:column;gap:4px;margin-bottom:12px}
+.hero-ag .lab{font:600 12px var(--display);letter-spacing:.14em;text-transform:uppercase;color:var(--link)}
+.hero-ag .big{font:300 clamp(48px,4.5vw,64px)/1 var(--display);letter-spacing:.02em;font-variant-numeric:tabular-nums;margin-top:4px}
+.hero-ag .big small{font:400 14px var(--body);color:var(--muted);margin-left:12px;letter-spacing:0}
+.hero-ag .nm{font-weight:700;font-size:18px;margin-top:6px}
+.hero-ag .sv{color:var(--muted);font-size:var(--t-meta)}
+.item.ag.aberto{background:color-mix(in srgb,var(--tint) 38%,transparent)}
+.ag-acao{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.ag-acao .btn .ico,.hero-ag .btn .ico,.ag-det .btn .ico{width:16px;height:16px;margin-right:6px}
+.ag-det{flex:1 1 100%;padding:0 14px 14px;display:flex;flex-direction:column;gap:10px}
+.ag-det.solto{padding:8px 0 0}
+.fa{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.fa>div{border-radius:16px;background:color-mix(in srgb,var(--tint) 55%,transparent);padding:9px 12px;min-width:0}
+.fa small{display:block;font:600 11px var(--display);letter-spacing:.12em;color:var(--muted);text-transform:uppercase}
+.fa b{font-size:14px;font-weight:700;overflow-wrap:anywhere}
+.al{font-size:var(--t-meta);color:var(--warn);border:1px solid var(--warn);border-radius:14px;padding:8px 12px}
+.cal{padding:14px}
+.cal-h{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.cal-h h2{text-transform:capitalize;letter-spacing:.1em}
+.cal-g{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin:10px 0 14px}
+.cdow{font:600 11px var(--display);letter-spacing:.1em;text-align:center;color:var(--muted);text-transform:uppercase;padding-bottom:2px}
+.cd{min-height:46px;border-radius:14px;border:1px solid transparent;background:transparent;color:var(--fg);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font:400 16px var(--display);font-variant-numeric:tabular-nums}
+.cd i{width:5px;height:5px;border-radius:50%;background:var(--accent);opacity:0}
+.cd.tem i{opacity:1}
+.cd.fora{color:var(--muted);opacity:.55}
+.cd.hoje{border-color:var(--accent)}
+.cd.sel{background:var(--btn);color:var(--btn-fg);opacity:1}
+.cd.sel i{background:currentColor}
+.cd:hover:not(.sel){background:color-mix(in srgb,var(--tint) 55%,transparent)}
+
+
+.actions>.pill{align-self:center}
+
+/* Agenda: mais espaco, tudo alinhado na mesma margem (16px) e detalhes em rotulo e valor */
+.hr{width:60px}
+.ag-main{padding:14px 16px}
+.ag-acao{padding:0 16px 14px 88px}
+.ag-det{padding:0 16px 16px}
+.hero-ag{padding:18px 16px 20px}
+.fa{display:grid;grid-template-columns:1fr;gap:0;background:color-mix(in srgb,var(--tint) 45%,transparent);border-radius:18px;padding:4px 14px}
+.fa>div{display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding:10px 0;border-radius:0;background:none;border-top:1px solid var(--sep)}
+.fa>div:first-child{border-top:0}
+.fa small{flex:none}
+.fa b{text-align:right}
+@media (min-width:768px){.fa{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:28px}.fa>div:nth-child(2){border-top:0}}
+

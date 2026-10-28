@@ -84,7 +84,7 @@ function route(){
   else viewAgenda(app);
   badge();
 }
-window.addEventListener('hashchange', () => { ptab = 'dados'; dadosEdit = false; agSel = null; closeSheet(); route(); window.scrollTo(0, 0); const a = $('#app'); a.classList.remove('entra'); void a.offsetWidth; a.classList.add('entra'); });
+window.addEventListener('hashchange', () => { ptab = 'dados'; dadosEdit = false; agSel = null; agCal = false; agAberto = new Set(); closeSheet(); route(); window.scrollTo(0, 0); const a = $('#app'); a.classList.remove('entra'); void a.offsetWidth; a.classList.add('entra'); });
 
 /* ---------- início: painel de gestão ---------- */
 const SUMIDA_DIAS = 90, INATIVA_DIAS = 365;
@@ -510,41 +510,92 @@ const agLembrete = a => ({chave: 'procedimento:' + a.id + ':' + a.ini, p: pacDe(
 const agLembrado = a => db.msgs.some(m => m.pid === a.pid && m.chave === agLembrete(a).chave);
 /* horário de amanhã que ainda aceita o lembrete de WhatsApp: vivo, com telefone */
 const agLembravel = a => (a.status === 'agendado' || a.status === 'confirmado') && agDia(a.ini) === addDays(today(), 1) && !!((pacDe(a.pid) || {}).tel);
+const ICO_MAIS = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6v12M6 12h12"/></svg>', ICO_MENOS = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"/></svg>';
+const ICO_CAL = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5.5" width="16" height="14.5" rx="2.5"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/></svg>';
+let agAberto = new Set(), agCal = false, agMes = null;
+/* o que a Rose precisa saber da paciente antes de atender: idade, último atendimento, pacote, parcela, ciclo */
+function agFatos(a){
+  const p = pacDe(a.pid); if (!p) return '<p class="sub" style="margin:0">Paciente removida.</p>';
+  const ult = p.atend.length ? lastAtend(p) : null, us = ult && svc(ult.servicoId), L = agLembrete(a);
+  const pk = db.pacotes.filter(k => k.pid === p.id && k.usadas < k.total).sort((x, y) => y.criado.localeCompare(x.criado))[0];
+  const parc = db.pacotes.filter(k => k.pid === p.id).flatMap(k => k.parc.filter(x => !x.pago)).sort((x, y) => x.venc.localeCompare(y.venc))[0];
+  const C = cicloCalc(p), aviso = cicloAviso(p, agDia(a.ini)), zap = waLink(p, '', {});
+  const fato = (l, v) => `<div><small>${l}</small><b>${v}</b></div>`;
+  const lembrar = agLembravel(a) && !agLembrado(a) ? `<a class="btn small" data-lembrar="${a.id}" href="${waLink(p, tplOf('procedimento'), {servico: L.s && L.s.nome, data: agDia(a.ini), hora: agHora(a.ini)})}" target="_blank" rel="noopener">${ICO_BALAO}Lembrar pelo WhatsApp</a>`
+    : zap ? `<a class="btn ghost small" href="${zap}" target="_blank" rel="noopener">${ICO_BALAO}WhatsApp</a>` : '';
+  return `<div class="fa">${fato('Idade', esc(age(p.nasc) || 'não informada'))}${fato('Último', ult ? esc((us ? us.nome : 'Atendimento') + ' · ' + fmtD(ult.data).slice(0, 5)) : 'nenhum')}
+    ${fato('Pacote', pk ? pk.usadas + ' de ' + pk.total + ' sessões' : 'sem pacote')}${fato('Parcela', parc ? esc(money(parc.valor) + ' · vence ' + fmtD(parc.venc).slice(0, 5)) : 'em dia')}
+    ${fato('Ciclo', C.ativo ? 'média de ' + C.media + ' dias' : C.ini.length ? C.medidos + ' de ' + CICLOS_MIN + ' ciclos' : 'sem registro')}${fato('WhatsApp', p.tel ? esc(p.tel) : 'sem telefone')}</div>
+    ${aviso ? `<div class="al">${esc(aviso)}</div>` : ''}${a.obs ? `<p class="sub" style="margin:0">Obs.: ${esc(a.obs)}</p>` : ''}
+    <div class="actions">${lembrar}<a class="btn ghost small" href="#paciente-${p.id}">Abrir ficha</a><button class="btn ghost small" data-ag="${a.id}" type="button">Remarcar ou mudar situação</button></div>`;
+}
 function viewAgenda(app){
   const t = today(), amanha = addDays(t, 1); if (!agSel) agSel = t;
   const porDia = new Map(); db.agenda.filter(a => a.status !== 'cancelado').forEach(a => { const d = agDia(a.ini); porDia.set(d, (porDia.get(d) || 0) + 1); });
   const ini = addDays(agSel, -((parse(agSel).getDay() + 6) % 7)), semana = Array.from({length: 7}, (_, i) => addDays(ini, i));
   const doDia = db.agenda.filter(a => agDia(a.ini) === agSel).sort((a, b) => a.ini.localeCompare(b.ini));
   const ativos = doDia.filter(a => a.status !== 'cancelado'), agora = new Date().toTimeString().slice(0, 5);
-  const proximoHoje = agSel === t ? ativos.find(a => agHora(a.ini) >= agora && a.status !== 'realizado') : null;
+  const vivo = a => a.status === 'agendado' || a.status === 'confirmado';
+  /* destaque: o próximo atendimento pela hora (não o primeiro do dia); em outro dia futuro, o primeiro; em dia passado, nenhum */
+  const destaque = agSel === t ? ativos.find(a => vivo(a) && agHora(a.ini) >= agora) : agSel > t ? ativos.find(vivo) : null;
+  const resto = doDia.filter(a => !destaque || a.id !== destaque.id);
   const depois = db.agenda.filter(a => a.status !== 'cancelado' && agDia(a.ini) > agSel).sort((a, b) => a.ini.localeCompare(b.ini))[0];
-  const resumo = ativos.length ? ativos.length + (ativos.length === 1 ? ' horário' : ' horários') + (proximoHoje ? ' · próximo às ' + agHora(proximoHoje.ini) : '') : 'Nenhum horário marcado';
+  const resumo = ativos.length ? ativos.length + (ativos.length === 1 ? ' horário' : ' horários') + (agSel === t && destaque ? ' · próximo às ' + agHora(destaque.ini) : '') : 'Nenhum horário marcado';
   const paraLembrar = db.agenda.filter(a => agLembravel(a) && !agLembrado(a)).length;
-  const linha = a => { const p = pacDe(a.pid), s = svc(a.sid), rem = (a.rem || []).length, off = a.status === 'cancelado' || a.status === 'faltou', L = agLembrete(a);
-    const acao = agLembravel(a) ? (agLembrado(a) ? '<span class="pill">Lembrete enviado</span>'
-      : `<a class="btn ghost small" data-lembrar="${a.id}" href="${waLink(p, tplOf('procedimento'), {servico: s && s.nome, data: agDia(a.ini), hora: agHora(a.ini)})}" target="_blank" rel="noopener">${ICO_BALAO}Lembrar pelo WhatsApp</a>`) : '';
-    return `<div class="item ag${off ? ' apagado' : ''}${proximoHoje && proximoHoje.id === a.id ? ' proximo' : ''}"><button class="ag-main" data-ag="${a.id}" type="button"><div class="hr">${agHora(a.ini)}<small>até ${agFimHora(a)}</small></div><div class="grow"><span class="t">${esc(p ? p.nome : 'Paciente removida')}</span><div class="m">${esc(s ? s.nome : 'Sem serviço')}${rem ? ' · remarcado' + (rem > 1 ? ' ' + rem + 'x' : '') : ''}</div></div><span class="pill ${a.status === 'faltou' || a.status === 'cancelado' ? 'late' : a.status === 'agendado' ? 'soon' : ''}">${STATUS_AG[a.status]}</span></button>${acao ? `<div class="ag-acao">${acao}</div>` : ''}</div>`; };
+  const faltam = a => { const m = Math.round((agMs(a.ini) - Date.now()) / 60000); return m <= 0 ? 'agora' : m < 60 ? 'daqui a ' + m + ' min' : 'daqui a ' + Math.floor(m / 60) + 'h' + (m % 60 ? pad(m % 60) : ''); };
+  const botaoDet = a => { const o = agAberto.has(a.id); return `<button class="btn ghost small" data-tg="${a.id}" type="button" aria-expanded="${o}">${o ? ICO_MENOS : ICO_MAIS}Detalhes</button>`; };
+  const linha = a => { const p = pacDe(a.pid), s = svc(a.sid), rem = (a.rem || []).length, off = a.status === 'cancelado' || a.status === 'faltou', o = agAberto.has(a.id);
+    const lembrete = agLembravel(a) && !agLembrado(a) ? `<a class="btn ghost small" data-lembrar="${a.id}" href="${waLink(p, tplOf('procedimento'), {servico: s && s.nome, data: agDia(a.ini), hora: agHora(a.ini)})}" target="_blank" rel="noopener">${ICO_BALAO}Lembrar</a>` : agLembravel(a) ? '<span class="pill">Lembrete enviado</span>' : '';
+    return `<div class="item ag${off ? ' apagado' : ''}${o ? ' aberto' : ''}"><button class="ag-main" data-tg="${a.id}" type="button" aria-expanded="${o}"><div class="hr">${agHora(a.ini)}<small>até ${agFimHora(a)}</small></div><div class="grow"><span class="t">${esc(p ? p.nome : 'Paciente removida')}</span><div class="m">${esc(s ? s.nome : 'Sem serviço')}${rem ? ' · remarcado' + (rem > 1 ? ' ' + rem + 'x' : '') : ''}</div></div></button>
+      <div class="ag-acao">${botaoDet(a)}<span class="pill ${a.status === 'faltou' || a.status === 'cancelado' ? 'late' : a.status === 'agendado' ? 'soon' : ''}">${STATUS_AG[a.status]}</span>${lembrete}</div>${o ? `<div class="ag-det">${agFatos(a)}</div>` : ''}</div>`; };
+  const heroHtml = destaque ? (() => { const a = destaque, p = pacDe(a.pid), s = svc(a.sid), o = agAberto.has(a.id), rem = (a.rem || []).length;
+    return `<section class="card hero-ag"><div class="lab">${agSel === t ? 'Próximo · ' + faltam(a) : 'Primeiro do dia'}</div><div class="big">${agHora(a.ini)}<small>até ${agFimHora(a)}</small></div>
+      <div class="nm">${esc(p ? p.nome : 'Paciente removida')}</div><div class="sv">${esc(s ? s.nome : 'Sem serviço')}${rem ? ' · remarcado' + (rem > 1 ? ' ' + rem + 'x' : '') : ''}</div>
+      <div class="actions" style="margin-top:10px">${botaoDet(a)}<span class="pill ${a.status === 'agendado' ? 'soon' : ''}">${STATUS_AG[a.status]}</span></div>${o ? `<div class="ag-det solto">${agFatos(a)}</div>` : ''}</section>`; })() : '';
   const vazio = `<div class="empty">Dia livre.<div class="actions" style="justify-content:center;margin-top:12px"><button class="btn small" id="ag-vazio" type="button">Agendar neste dia</button>${depois ? `<button class="btn ghost small" id="ag-depois" type="button">Próximo: ${esc(nomeDia(agDia(depois.ini)).toLowerCase())}</button>` : ''}</div></div>`;
   const nL = lembretesData().filter(x => !x.sent).length, dh = new Date();
   const agoraIso = t + 'T' + agora, prox = db.agenda.filter(a => a.status !== 'cancelado' && a.ini >= agoraIso).sort((a, b) => a.ini.localeCompare(b.ini)).slice(0, 6);
   const rotDia = d => d === t ? 'hoje' : d === amanha ? 'amanhã' : DIAS_SEM[(parse(d).getDay() + 6) % 7] + ', ' + +d.slice(8);
   const proximosHtml = prox.length ? `<section class="so-largo"><h2>Próximos horários</h2><div class="list">${prox.map(a => { const p = pacDe(a.pid), s = svc(a.sid);
     return `<button class="item" data-pd="${agDia(a.ini)}" type="button"><div class="hr">${agHora(a.ini)}<small>${rotDia(agDia(a.ini))}</small></div><div class="grow"><span class="t">${esc(p ? p.nome : 'Paciente removida')}</span><div class="m">${esc(s ? s.nome : 'Sem serviço')}</div></div></button>`; }).join('')}</div></section>` : '';
+  /* calendário do mês: para olhar adiante (muitos procedimentos caros são marcados com 1 mês de antecedência) */
+  const calHtml = () => { if (!agMes) agMes = agSel.slice(0, 7);
+    const [y, m] = agMes.split('-').map(Number), primeiro = agMes + '-01', desl = (parse(primeiro).getDay() + 6) % 7, nDias = new Date(y, m, 0).getDate(), n = Math.ceil((desl + nDias) / 7) * 7, ini0 = addDays(primeiro, -desl);
+    const cel = Array.from({length: n}, (_, i) => addDays(ini0, i)), nomeMes = new Date(y, m - 1, 1).toLocaleDateString('pt-BR', {month: 'long'});
+    return `<section class="card cal"><div class="cal-h"><button class="seta pq" id="cal-prev" type="button" aria-label="Mês anterior">${SETA_E}</button><h2 style="margin:0">${nomeMes} ${y}</h2><button class="seta pq" id="cal-next" type="button" aria-label="Próximo mês">${SETA_D}</button></div>
+      <div class="cal-g">${DIAS_SEM.map(d => `<span class="cdow">${d}</span>`).join('')}${cel.map(d => `<button class="cd${d.slice(0, 7) !== agMes ? ' fora' : ''}${d === t ? ' hoje' : ''}${d === agSel ? ' sel' : ''}${porDia.get(d) ? ' tem' : ''}" data-cd="${d}" type="button" aria-pressed="${d === agSel}" aria-label="${esc(nomeDia(d))}${porDia.get(d) ? ', ' + porDia.get(d) + ' horários' : ''}"><span>${+d.slice(8)}</span><i></i></button>`).join('')}</div>
+      <div class="actions"><button class="btn small" id="cal-novo" type="button">Agendar em ${fmtD(agSel).slice(0, 5)}</button><button class="btn ghost small" id="cal-hoje" type="button">Hoje</button></div></section>`; };
   app.innerHTML = `<div class="saud"><h1>${saudacao()}, Rose</h1><p class="sub">${DIAS_SEM[(dh.getDay() + 6) % 7]}, ${dh.getDate()} ${MES[dh.getMonth()]}</p></div>
     ${demoNoteHtml()}
-    <div class="ag-col"><div class="semana"><div class="dias" role="group" aria-label="Dias da semana">${semana.map((d, i) => `<button class="dia${d === t ? ' hoje' : ''}${porDia.get(d) ? ' tem' : ''}" data-d="${d}" type="button" aria-pressed="${d === agSel}" aria-label="${esc(nomeDia(d))}${porDia.get(d) ? ', ' + porDia.get(d) + ' horários' : ''}"><small>${DIAS_SEM[i]}</small><b>${+d.slice(8)}</b><i></i></button>`).join('')}</div></div>
+    <div class="ag-col"><div class="semana"><button class="seta so-md" id="ag-prev" type="button" aria-label="Semana anterior">${SETA_E}</button>
+      <div class="dias" role="group" aria-label="Dias da semana">${semana.map((d, i) => `<button class="dia${d === t ? ' hoje' : ''}${porDia.get(d) ? ' tem' : ''}" data-d="${d}" type="button" aria-pressed="${d === agSel}" aria-label="${esc(nomeDia(d))}${porDia.get(d) ? ', ' + porDia.get(d) + ' horários' : ''}"><small>${DIAS_SEM[i]}</small><b>${+d.slice(8)}</b><i></i></button>`).join('')}</div>
+      <button class="seta so-md" id="ag-next" type="button" aria-label="Próxima semana">${SETA_D}</button>
+      <button class="calbtn" id="ag-cal" type="button" aria-expanded="${agCal}" aria-label="${agCal ? 'Fechar o calendário' : 'Abrir o calendário do mês'}">${ICO_CAL}</button></div>
+    ${agCal ? calHtml() : ''}
     ${paraLembrar && agSel !== amanha ? `<button class="faixa" id="ag-amanha" type="button">${ICO_BALAO}<span>Amanhã: lembrar ${paraLembrar} ${paraLembrar === 1 ? 'paciente' : 'pacientes'}</span><span class="pill soon">${paraLembrar}</span></button>` : ''}
-    <section><div class="subh"><div><h2 style="margin:0">${esc(agSel === t ? 'Hoje' : nomeDia(agSel))}</h2><p class="sub" style="margin:2px 0 0">${resumo}</p></div><div class="actions" style="flex-wrap:nowrap;gap:6px">${agSel !== t ? '<button class="btn ghost small" id="ag-hoje" type="button">Hoje</button>' : ''}<button class="seta pq" id="ag-prev" type="button" aria-label="Semana anterior">${SETA_E}</button><button class="seta pq" id="ag-next" type="button" aria-label="Próxima semana">${SETA_D}</button></div></div>
-      <div class="list">${doDia.length ? doDia.map(linha).join('') : vazio}</div></section></div>
+    <section><div class="subh"><div><h2 style="margin:0">${esc(agSel === t ? 'Hoje' : nomeDia(agSel))}</h2><p class="sub" style="margin:2px 0 0">${resumo}</p></div>${agSel !== t ? '<button class="btn ghost small" id="ag-hoje" type="button">Hoje</button>' : ''}</div>
+      ${heroHtml}${doDia.length ? (resto.length ? `<div class="list">${resto.map(linha).join('')}</div>` : '') : `<div class="list">${vazio}</div>`}</section></div>
     <aside class="ag-side"><div class="list"><a class="item" href="#lembretes"><div class="avatar">${ICO_SINO}</div><div class="grow"><span class="t">${nL ? nL + (nL === 1 ? ' lembrete para enviar' : ' lembretes para enviar') : 'Lembretes em dia'}</span><div class="m">${nL ? 'Mensagens prontas para o WhatsApp' : 'Nada para enviar agora'}</div></div>${nL ? `<span class="pill soon">${nL}</span>` : ''}</a></div>${proximosHtml}</aside>`;
-  const vai = d => { agSel = d; viewAgenda(app); };
-  $$('.dia', app).forEach(b => b.onclick = () => vai(b.dataset.d));
+  const vai = d => { agSel = d; if (agCal) agMes = d.slice(0, 7); viewAgenda(app); };
+  $$('.dia', app).forEach(b => b.onclick = () => { if (!b._arrastou) vai(b.dataset.d); });
+  /* deslizar a semana de lado troca de semana (celular e mouse) */
+  const dias = $('.dias', app); let x0 = null, y0 = 0;
+  dias.addEventListener('pointerdown', e => { x0 = e.clientX; y0 = e.clientY; });
+  dias.addEventListener('pointerup', e => { if (x0 == null) return; const dx = e.clientX - x0, dy = e.clientY - y0; x0 = null;
+    if (Math.abs(dx) > 60 && Math.abs(dy) < 40) { $$('.dia', app).forEach(b => b._arrastou = true); setTimeout(() => vai(addDays(agSel, dx < 0 ? 7 : -7)), 0); } });
   $('#ag-prev').onclick = () => vai(addDays(agSel, -7)); $('#ag-next').onclick = () => vai(addDays(agSel, 7));
+  $('#ag-cal').onclick = () => { agCal = !agCal; agMes = agSel.slice(0, 7); viewAgenda(app); };
+  if (agCal) {
+    $$('[data-cd]', app).forEach(b => b.onclick = () => vai(b.dataset.cd));
+    $('#cal-prev').onclick = () => { agMes = monthAdd(agMes, -1); viewAgenda(app); }; $('#cal-next').onclick = () => { agMes = monthAdd(agMes, 1); viewAgenda(app); };
+    $('#cal-novo').onclick = () => agNovo(null, agSel); $('#cal-hoje').onclick = () => { agMes = t.slice(0, 7); vai(t); };
+  }
   const hoje = $('#ag-hoje'); if (hoje) hoje.onclick = () => vai(t);
   const am = $('#ag-amanha'); if (am) am.onclick = () => vai(amanha);
   const dep = $('#ag-depois'); if (dep) dep.onclick = () => vai(agDia(depois.ini));
   $$('[data-pd]', app).forEach(b => b.onclick = () => vai(b.dataset.pd));
   const vz = $('#ag-vazio'); if (vz) vz.onclick = () => agNovo(null, agSel);
+  $$('[data-tg]', app).forEach(b => b.onclick = () => { const id = b.dataset.tg; agAberto.has(id) ? agAberto.delete(id) : agAberto.add(id); viewAgenda(app); });
   $$('[data-ag]', app).forEach(b => b.onclick = () => agDetalhe(db.agenda.find(a => a.id === b.dataset.ag)));
   $$('[data-lembrar]', app).forEach(a => a.onclick = () => { const x = db.agenda.find(y => y.id === a.dataset.lembrar), L = agLembrete(x);
     registrarEnvio(x.pid, 'procedimento', L.chave, msgText(L.p, tplOf('procedimento'), {servico: L.s && L.s.nome, data: agDia(x.ini), hora: agHora(x.ini)})); setTimeout(() => viewAgenda(app), 400); });
