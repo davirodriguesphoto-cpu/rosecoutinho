@@ -20,6 +20,8 @@ O arquivo `supabase/migrations/0001_schema.sql` já cria as tabelas de **todas**
 ## Colocar no ar (primeira vez)
 
 ### 1. Supabase (banco e login)
+> O projeto `painel-rosecoutinho` (região São Paulo) já foi criado na organização da Rose e o banco já recebeu a migração. Restam os itens 3 a 6 abaixo.
+
 1. Crie o projeto em supabase.com. Região: **South America (São Paulo)**. Guarde a senha do banco.
 2. Abra **SQL Editor**, cole todo o conteúdo de `supabase/migrations/0001_schema.sql` e execute.
 3. Crie o acesso da Rose: **Authentication > Users > Add user**, com e-mail e senha, marcando "Auto Confirm User".

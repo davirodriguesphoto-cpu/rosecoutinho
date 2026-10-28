@@ -1,5 +1,6 @@
 -- Painel Rose Coutinho: schema completo (todas as fases).
 -- Rodar uma vez no SQL Editor do Supabase. Idempotente onde possível.
+-- (O projeto da Rose já recebeu esta migração, em 3 partes, via conector.)
 -- Acesso: somente usuários listados em public.membros (RLS em todas as tabelas).
 
 -- ============ acesso ============
@@ -17,11 +18,11 @@ language sql stable security definer set search_path = public as $$
   select exists (select 1 from public.membros where user_id = auth.uid())
      and coalesce(auth.jwt() ->> 'aal', '') = 'aal2'
 $$;
-revoke all on function public.is_member() from public;
+revoke all on function public.is_member() from public, anon;
 grant execute on function public.is_member() to authenticated;
 
 create or replace function public.set_updated_at() returns trigger
-language plpgsql as $$ begin new.updated_at = now(); return new; end $$;
+language plpgsql set search_path = '' as $$ begin new.updated_at = now(); return new; end $$;
 
 -- ============ catálogo e pacientes (Fase 1) ============
 create table if not exists public.servicos (
@@ -73,6 +74,7 @@ create table if not exists public.atendimentos (
   updated_at       timestamptz not null default now()
 );
 create index if not exists atendimentos_paciente_idx on public.atendimentos (paciente_id);
+create index if not exists atendimentos_servico_idx  on public.atendimentos (servico_id);
 create index if not exists atendimentos_data_idx     on public.atendimentos (data);
 create index if not exists atendimentos_retorno_idx  on public.atendimentos (retorno_em);
 
@@ -88,7 +90,9 @@ create table if not exists public.agendamentos (
   observacoes      text,
   created_at       timestamptz not null default now()
 );
-create index if not exists agendamentos_inicio_idx on public.agendamentos (inicio);
+create index if not exists agendamentos_inicio_idx   on public.agendamentos (inicio);
+create index if not exists agendamentos_paciente_idx on public.agendamentos (paciente_id);
+create index if not exists agendamentos_servico_idx  on public.agendamentos (servico_id);
 
 create table if not exists public.mensagens (
   id           text primary key default gen_random_uuid()::text,
@@ -132,6 +136,7 @@ create table if not exists public.documentos (
   created_at       timestamptz not null default now()
 );
 create index if not exists documentos_paciente_idx on public.documentos (paciente_id);
+create index if not exists documentos_modelo_idx   on public.documentos (modelo_id);
 
 create table if not exists public.fotos (
   id              text primary key default gen_random_uuid()::text,
@@ -143,7 +148,8 @@ create table if not exists public.fotos (
   legenda         text,
   created_at      timestamptz not null default now()
 );
-create index if not exists fotos_paciente_idx on public.fotos (paciente_id);
+create index if not exists fotos_paciente_idx    on public.fotos (paciente_id);
+create index if not exists fotos_atendimento_idx on public.fotos (atendimento_id);
 
 -- ============ estoque e custos (Fase 4) ============
 create table if not exists public.estoque_itens (
@@ -187,6 +193,11 @@ create table if not exists public.servico_insumos (   -- o que cada serviço con
   primary key (servico_id, item_id)
 );
 
+create index if not exists estoque_mov_item_idx        on public.estoque_movimentos (item_id);
+create index if not exists estoque_mov_lote_idx        on public.estoque_movimentos (lote_id);
+create index if not exists estoque_mov_atendimento_idx on public.estoque_movimentos (atendimento_id);
+create index if not exists servico_insumos_item_idx    on public.servico_insumos (item_id);
+
 -- ============ financeiro (Fase 4) ============
 create table if not exists public.lancamentos (
   id               text primary key default gen_random_uuid()::text,
@@ -201,7 +212,9 @@ create table if not exists public.lancamentos (
   atendimento_id   text references public.atendimentos(id) on delete set null,
   created_at       timestamptz not null default now()
 );
-create index if not exists lancamentos_data_idx on public.lancamentos (data);
+create index if not exists lancamentos_data_idx        on public.lancamentos (data);
+create index if not exists lancamentos_paciente_idx    on public.lancamentos (paciente_id);
+create index if not exists lancamentos_atendimento_idx on public.lancamentos (atendimento_id);
 
 create table if not exists public.pacotes_paciente (
   id              text primary key default gen_random_uuid()::text,
@@ -214,6 +227,9 @@ create table if not exists public.pacotes_paciente (
   criado_em       date not null default current_date,
   validade        date
 );
+
+create index if not exists pacotes_paciente_idx on public.pacotes_paciente (paciente_id);
+create index if not exists pacotes_servico_idx  on public.pacotes_paciente (servico_id);
 
 create table if not exists public.config (
   chave       text primary key,
@@ -241,7 +257,7 @@ group by p.id;
 -- ============ segurança: RLS em tudo, acesso só para membros ============
 alter table public.membros enable row level security;
 drop policy if exists "ver o próprio cadastro" on public.membros;
-create policy "ver o próprio cadastro" on public.membros for select to authenticated using (user_id = auth.uid());
+create policy "ver o próprio cadastro" on public.membros for select to authenticated using (user_id = (select auth.uid()));
 
 alter table public.google_tokens enable row level security;   -- sem políticas: só a service role acessa
 
@@ -256,7 +272,7 @@ begin
   ] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "acesso de membros" on public.%I', t);
-    execute format('create policy "acesso de membros" on public.%I for all to authenticated using (public.is_member()) with check (public.is_member())', t);
+    execute format('create policy "acesso de membros" on public.%I for all to authenticated using ((select public.is_member())) with check ((select public.is_member()))', t);
   end loop;
 
   foreach t in array array['servicos','pacientes','atendimentos','config'] loop
@@ -271,5 +287,5 @@ on conflict (id) do nothing;
 
 drop policy if exists "membros acessam arquivos da clínica" on storage.objects;
 create policy "membros acessam arquivos da clínica" on storage.objects for all to authenticated
-  using (bucket_id in ('fotos','documentos') and public.is_member())
-  with check (bucket_id in ('fotos','documentos') and public.is_member());
+  using (bucket_id in ('fotos','documentos') and (select public.is_member()))
+  with check (bucket_id in ('fotos','documentos') and (select public.is_member()));
