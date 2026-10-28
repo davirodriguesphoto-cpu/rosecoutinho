@@ -59,6 +59,34 @@ Abrir o endereço no navegador e usar "Adicionar à tela inicial".
 - **Retorno vencido:** o retorno do último atendimento passou e a última visita tem menos de 90 dias. **Sumido:** última visita entre 90 dias e 1 ano. Mais de 1 ano é "inativo" e só aparece como contagem.
 - O botão **Chamar** abre o WhatsApp com a mensagem pronta (o texto está em `MSG_SUMIDA` e `MSG_RETORNO`, em `src/main.js`). Ela só toca em enviar.
 
+## Contrato com assinatura online
+O painel continua 100% fechado. A assinatura acontece em **outra página** (`contrato.html`, endereço `contrato.rosecoutinho.com.br`), pública, que não tem login nem acesso a nenhuma tabela.
+
+**Como funciona**
+1. Na ficha da paciente, **Documentos > Novo documento**: escolha o modelo (e o pacote, se houver). O painel preenche nome, nascimento, telefone, CPF, RG, endereço, CEP, objeto, valor e pagamento a partir da ficha e do pacote.
+2. **Enviar por WhatsApp** abre a conversa com a mensagem e o link prontos. O link tem um código aleatório de 43 caracteres, vale **24 horas** e uma única vez. Depois disso, ou depois de assinado, ele não abre mais, nem para assinar nem para consultar. O texto de um contrato vencido e não assinado é apagado do banco (a cada 15 minutos).
+3. A paciente abre no celular, lê, completa o que faltar, responde se **autoriza ou não o uso de imagem em publicidade** e toca em **Assinar**. Ela assina **desenhando com o dedo** ou **enviando uma imagem** da assinatura, confirma e **baixa a cópia em PDF**.
+4. A função de servidor `contrato-assinar` gera o PDF (com data, hora, IP, aparelho e código de verificação) e envia para a **pasta da paciente no Google Drive**. O contrato assinado **não fica** no app, no Supabase, na Vercel nem no GitHub. No banco ficam só: data da assinatura, código de verificação e o id do arquivo no Drive (botão **Abrir no Drive** na ficha). A resposta sobre imagem também é gravada na ficha (campo **Uso de imagem em publicidade**).
+5. Se o Drive falhar, nada é marcado como assinado e o link continua valendo; a paciente vê uma mensagem para tentar de novo.
+
+**Ligação com o Google Drive (necessária para assinar de verdade)**
+- Segredos da função (Supabase > Edge Functions > Secrets): `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET`.
+- Uma linha em `google_tokens` com o `refresh_token` da conta Google da clínica. A permissão (escopo) precisa deixar a função **criar arquivos em pastas que ela não criou**: use o escopo `https://www.googleapis.com/auth/drive`. O escopo `drive.file` só enxerga o que o próprio app criou e não serve se as pastas já existirem.
+- Pasta da paciente: se `pacientes.drive_folder_id` estiver vazio, a função cria a pasta com o nome da paciente e grava o id. Para criar dentro de uma pasta específica, grave o id dela em `config` com a chave `drive_pasta_raiz` (texto).
+- Sem isso a página responde "não foi possível guardar agora" e nada é perdido.
+
+**Modelos:** ficam no banco (`modelos_documento`), não no código. Edite em **Documentos > Modelos**. Campos: `{{nome}} {{nascimento}} {{telefone}} {{cpf}} {{rg}} {{endereco}} {{cep}} {{data}} {{objeto}} {{valor_total}} {{pagamento}}` (painel) e `{{data_hora}}` (data e hora da assinatura). O que faltar na ficha, a paciente completa ao assinar.
+
+**Colocar no ar o endereço de contratos**
+1. Vercel > Project > Settings > Domains > Add `contrato.rosecoutinho.com.br` (o mesmo projeto do painel).
+2. No DNS, registro **CNAME** `contrato` apontando para o valor que a Vercel mostrar.
+3. Se usar outro endereço, defina `VITE_CONTRATO_URL` (sem barra no fim) na Vercel e `CONTRATO_ORIGENS` nos segredos da função.
+4. Teste com uma paciente de teste: criar o documento, abrir o link no celular e assinar.
+
+**Atenção jurídica:** é assinatura eletrônica simples com registro de prova, não certificado digital (ICP-Brasil). Os textos dos modelos devem ser revisados por quem responde juridicamente pela clínica.
+
+**Repositório:** mantenha-o **privado**. Dados e textos da clínica não devem ficar em repositório público.
+
 ## Importar a base antiga
 Em **Pacientes > Importar**, enviar um CSV com cabeçalho. Colunas reconhecidas: `nome`, `telefone` (ou celular, whatsapp), `nascimento` (dd/mm/aaaa ou aaaa-mm-dd), `observações`. Duplicados (mesmo nome e telefone) são ignorados.
 

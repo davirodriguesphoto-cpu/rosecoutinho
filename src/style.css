@@ -154,3 +154,9 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center;justify-conten
 .sumario .tag.ok{color:var(--ok)}.sumario .tag.bad{color:var(--bad)}.sumario .tag.act{color:var(--link)}
 .subh{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin:0 0 8px}
 .subh h2{margin:0}
+
+/* contrato online */
+.contrato-texto{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.6;max-height:55vh;overflow:auto}
+.contrato-texto.cheio{max-height:none}
+.assina{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-top:6px}
+.assina canvas{width:100%;height:auto;display:block;touch-action:none;cursor:crosshair}

@@ -38,5 +38,18 @@
         }
       ]
     }
+  ],
+  "redirects": [
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "contrato.rosecoutinho.com.br"
+        }
+      ],
+      "destination": "/contrato.html",
+      "permanent": false
+    }
   ]
 }

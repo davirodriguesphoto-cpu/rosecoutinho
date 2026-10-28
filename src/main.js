@@ -1,6 +1,7 @@
 import './style.css';
 import SERVICES from './services.json';
 import { cloud } from './lib/cloud.js';
+import { preencher as preencherContrato, faltando as faltandoContrato, novoToken, cpfValido } from './lib/contrato.js';
 
 const KEY = 'rc-clinica-v1';
 const CATS = ['Estética Convencional','Estética Facial','Aparelhos','Estética Avançada'];
@@ -91,6 +92,7 @@ const TPL_PADRAO = {
   procedimento: 'Oi, {nome}! Passando para lembrar do seu horário amanhã, {data} às {hora}: {servico}. Posso confirmar?',
   pagamento: 'Oi, {nome}! Lembrando que a parcela de {valor} do seu plano ({servico}) vence em {data}. Qualquer dúvida é só me chamar.',
   pagamento_atraso: 'Oi, {nome}! Notei que a parcela de {valor} do seu plano ({servico}), com vencimento em {data}, ainda está em aberto. Posso te ajudar com alguma dúvida?',
+  contrato: 'Oi, {nome}! Segue o link para você ler e assinar o seu contrato com a Rose Coutinho: {link}',
   fim_plano: 'Oi, {nome}! Seu plano ({servico}) termina em {data}. Vamos conversar sobre a continuidade do seu tratamento?',
 };
 const tplOf = k => (db.tpl && db.tpl[k]) || TPL_PADRAO[k];
@@ -98,7 +100,7 @@ const monthAdd = (key, n) => { const [y, m] = key.split('-').map(Number); const 
 const money0 = n => 'R$ ' + Math.round(n).toLocaleString('pt-BR');
 const short = n => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace('.', ',') + 'k' : String(Math.round(n));
 const firstName = n => n.trim().split(/\s+/)[0];
-const msgText = (p, tpl, x = {}) => tpl.replace('{nome}', firstName(p.nome)).replace('{servico}', x.servico || 'procedimento').replace('{data}', x.data ? fmtD(x.data).slice(0, 5) : '').replace('{hora}', x.hora || '').replace('{valor}', x.valor || '');
+const msgText = (p, tpl, x = {}) => tpl.replace('{nome}', firstName(p.nome)).replace('{servico}', x.servico || 'procedimento').replace('{data}', x.data ? fmtD(x.data).slice(0, 5) : '').replace('{hora}', x.hora || '').replace('{valor}', x.valor || '').replace('{link}', x.link || '');
 function waLink(p, tpl, x){
   const d = (p.tel || '').replace(/\D/g, ''); if (d.length < 10) return '';
   const num = d.length >= 12 && d.startsWith('55') ? d : '55' + d;
@@ -190,10 +192,10 @@ function viewPacientes(app){
   $('#imp').onclick = importForm;
 }
 function patientForm(){
-  openSheet('Novo paciente', `<div class="form">${field('n-nome', 'Nome completo')}${field('n-tel', 'WhatsApp', '', 'tel', 'inputmode="tel"')}${field('n-nasc', 'Nascimento', '', 'date')}<button class="btn" id="n-ok" type="button">Cadastrar</button></div>`);
+  openSheet('Novo paciente', `<div class="form">${field('n-nome', 'Nome completo')}${field('n-tel', 'WhatsApp', '', 'tel', 'inputmode="tel"')}${field('n-nasc', 'Nascimento', '', 'date')}<div class="two">${field('n-cpf', 'CPF', '', 'text', 'inputmode="numeric"')}${field('n-rg', 'RG')}</div><button class="btn" id="n-ok" type="button">Cadastrar</button></div>`);
   $('#n-ok').onclick = () => {
-    const nome = val('n-nome'); if (!nome) return toast('Informe o nome');
-    const p = {id: uid(), nome, tel: val('n-tel'), nasc: val('n-nasc'), insta: '', origem: '', obs: '', lgpd: {ok: false, data: ''}, aval: {}, anam: {}, atend: []};
+    const nome = val('n-nome'); if (!nome) return toast('Informe o nome'); if (!cpfValido(val('n-cpf'))) return toast('CPF inválido: confira os números');
+    const p = {id: uid(), nome, tel: val('n-tel'), nasc: val('n-nasc'), cpf: val('n-cpf'), rg: val('n-rg'), end: '', cep: '', insta: '', origem: '', obs: '', lgpd: {ok: false, data: ''}, aval: {}, anam: {}, atend: []};
     db.patients.push(p); save(); closeSheet(); location.hash = '#paciente-' + p.id;
   };
 }
@@ -230,7 +232,7 @@ function importForm(){
 }
 
 /* ---------- ficha do paciente ---------- */
-const TABS = [['dados', 'Dados'], ['aval', 'Avaliação'], ['anam', 'Anamnese'], ['atend', 'Atendimentos'], ['pacotes', 'Pacotes'], ['ciclo', 'Ciclo']];
+const TABS = [['dados', 'Dados'], ['aval', 'Avaliação'], ['anam', 'Anamnese'], ['atend', 'Atendimentos'], ['pacotes', 'Pacotes'], ['docs', 'Documentos'], ['ciclo', 'Ciclo']];
 const ANAM = [['gestante', 'Gestante ou lactante'], ['alergia', 'Alergias (medicamentos, látex, anestésicos, cosméticos)'], ['medic', 'Uso contínuo de medicamentos'], ['anticoag', 'Anticoagulante ou AAS'], ['diabetes', 'Diabetes'], ['hipert', 'Hipertensão'], ['tireoide', 'Alteração de tireoide'], ['cardio', 'Doença cardíaca ou marca-passo'], ['metal', 'Implantes metálicos ou próteses'], ['onco', 'Histórico oncológico'], ['autoimune', 'Doença autoimune'], ['queloide', 'Tendência a queloide ou má cicatrização'], ['herpes', 'Herpes labial recorrente'], ['isotret', 'Isotretinoína nos últimos 6 meses'], ['cirurgia', 'Cirurgias recentes ou plásticas'], ['procs', 'Procedimentos estéticos anteriores'], ['fuma', 'Fumante'], ['sol', 'Exposição solar frequente ou bronzeamento recente']];
 function viewPaciente(app, p){
   app.innerHTML = `
@@ -241,17 +243,20 @@ function viewPaciente(app, p){
   $$('.chip', app).forEach(c => c.onclick = () => { ptab = c.dataset.t; viewPaciente(app, p); });
   $('#p-ag').onclick = () => agNovo(p.id);
   const b = $('#pbody');
-  ({dados: tabDados, aval: tabAval, anam: tabAnam, atend: tabAtend, pacotes: tabPacotes, ciclo: tabCiclo})[ptab](b, p);
+  ({dados: tabDados, aval: tabAval, anam: tabAnam, atend: tabAtend, pacotes: tabPacotes, docs: tabDocs, ciclo: tabCiclo})[ptab](b, p);
 }
 function tabDados(b, p){
   b.innerHTML = `<div class="card form">${field('d-nome', 'Nome completo', p.nome)}
     <div class="two">${field('d-tel', 'WhatsApp', p.tel, 'tel', 'inputmode="tel"')}${field('d-nasc', 'Nascimento', p.nasc, 'date')}</div>
+    <div class="two">${field('d-cpf', 'CPF', p.cpf, 'text', 'inputmode="numeric"')}${field('d-rg', 'RG', p.rg)}</div>
+    <div class="two">${field('d-end', 'Endereço', p.end)}${field('d-cep', 'CEP', p.cep, 'text', 'inputmode="numeric"')}</div>
+    ${select('d-img', 'Uso de imagem em publicidade' + (p.img && p.imgEm ? ' (respondido em ' + fmtD(p.imgEm) + ')' : ''), [['', 'Não informado'], ['sim', 'Autorizado'], ['nao', 'Não autorizado']], p.img || '')}
     <div class="two">${field('d-insta', 'Instagram', p.insta)}${field('d-origem', 'Como conheceu', p.origem)}</div>
     ${area('d-obs', 'Observações', p.obs)}
     <label class="check"><input type="checkbox" id="d-lgpd" ${p.lgpd && p.lgpd.ok ? 'checked' : ''}><span>Paciente autorizou o uso dos dados e das imagens (termo assinado)${p.lgpd && p.lgpd.ok ? `<br><span class="sub">Registrado em ${fmtD(p.lgpd.data)}</span>` : ''}</span></label>
     <div class="actions"><button class="btn" id="d-ok" type="button">Salvar</button><button class="btn danger" id="d-del" type="button">Excluir paciente</button></div></div>`;
-  $('#d-ok').onclick = () => { const nome = val('d-nome'); if (!nome) return toast('Informe o nome');
-    const ok = $('#d-lgpd').checked; Object.assign(p, {nome, tel: val('d-tel'), nasc: val('d-nasc'), insta: val('d-insta'), origem: val('d-origem'), obs: val('d-obs')});
+  $('#d-ok').onclick = () => { const nome = val('d-nome'); if (!nome) return toast('Informe o nome'); if (!cpfValido(val('d-cpf'))) return toast('CPF inválido: confira os números');
+    const ok = $('#d-lgpd').checked; Object.assign(p, {nome, tel: val('d-tel'), nasc: val('d-nasc'), cpf: val('d-cpf'), rg: val('d-rg'), end: val('d-end'), cep: val('d-cep'), img: val('d-img'), imgEm: val('d-img') === (p.img || '') ? (p.imgEm || '') : (val('d-img') ? today() : ''), insta: val('d-insta'), origem: val('d-origem'), obs: val('d-obs')});
     p.lgpd = {ok, data: ok ? ((p.lgpd && p.lgpd.ok && p.lgpd.data) || today()) : ''}; save(); route(); toast('Salvo'); };
   arm($('#d-del'), () => { db.patients = db.patients.filter(x => x.id !== p.id); db.msgs = db.msgs.filter(m => m.pid !== p.id); db.agenda = db.agenda.filter(a => a.pid !== p.id); db.pacotes = db.pacotes.filter(k => k.pid !== p.id); save(); location.hash = '#pacientes'; });
 }
@@ -344,8 +349,8 @@ function tabCiclo(b, p){
 }
 
 /* ---------- lembretes por WhatsApp (a Rose só toca em enviar) ---------- */
-const TIPO_NOME = {aniversario: 'Aniversário', manutencao: 'Manutenção', sumida: 'Sumida', procedimento: 'Procedimento', pagamento: 'Pagamento', pagamento_atraso: 'Pagamento em atraso', fim_plano: 'Fim de plano'};
-const MSG_ORDEM = ['aniversario', 'manutencao', 'sumida', 'procedimento', 'pagamento', 'pagamento_atraso', 'fim_plano'];
+const TIPO_NOME = {aniversario: 'Aniversário', manutencao: 'Manutenção', sumida: 'Sumida', procedimento: 'Procedimento', pagamento: 'Pagamento', pagamento_atraso: 'Pagamento em atraso', fim_plano: 'Fim de plano', contrato: 'Contrato'};
+const MSG_ORDEM = ['aniversario', 'manutencao', 'sumida', 'procedimento', 'pagamento', 'pagamento_atraso', 'fim_plano', 'contrato'];
 function lembretesData(){
   const t = today(), D = dashData(), out = [];
   const enviado = (pid, chave) => db.msgs.some(m => m.pid === pid && m.chave === chave);
@@ -382,7 +387,7 @@ function viewLembretes(app){
 }
 function registrarEnvio(pid, tipo, chave, texto){ db.msgs.push({id: uid(), pid, tipo, chave, texto, em: new Date().toISOString()}); save(); }
 function tplForm(){
-  openSheet('Mensagens do WhatsApp', `<div class="form"><p class="sub" style="margin:0">Use {nome}, {servico}, {data}, {hora} e {valor}.</p>
+  openSheet('Mensagens do WhatsApp', `<div class="form"><p class="sub" style="margin:0">Use {nome}, {servico}, {data}, {hora}, {valor} e {link}.</p>
     ${MSG_ORDEM.map(k => area('t-' + k, TIPO_NOME[k], tplOf(k))).join('')}
     <div class="actions"><button class="btn" id="t-ok" type="button">Salvar</button><button class="btn ghost" id="t-rst" type="button">Voltar ao padrão</button></div></div>`);
   $('#t-ok').onclick = () => { const tpl = {}; MSG_ORDEM.forEach(k => { const v = val('t-' + k); if (v && v !== TPL_PADRAO[k]) tpl[k] = v; }); db.tpl = tpl; save(); closeSheet(); route(); toast('Mensagens salvas'); };
@@ -520,6 +525,65 @@ function pacoteEdit(k, p){
     <div class="actions"><button class="btn" id="e-ok" type="button">Salvar</button></div></div>`);
   $('#e-ok').onclick = () => { const ses = Math.floor(+val('e-ses')), us = Math.floor(+val('e-us')); if (!(ses >= 1) || !(us >= 0)) return toast('Confira as sessões'); if (us > ses) return toast('Usadas não pode passar do total');
     Object.assign(k, {total: ses, usadas: us, validade: val('e-validade')}); save(); closeSheet(); route(); toast('Salvo'); };
+}
+
+/* ---------- documentos: contrato com assinatura online (só com login; o modo de teste não guarda documentos) ---------- */
+const CONTRATO_URL = (import.meta.env.VITE_CONTRATO_URL || 'https://contrato.rosecoutinho.com.br') + '/contrato.html';
+const docLink = d => d.token ? CONTRATO_URL + '#' + d.token : '';
+const docEstado = d => d.assinado_em ? ['Assinado em ' + new Date(d.assinado_em).toLocaleDateString('pt-BR'), ''] : d.expira_em && new Date(d.expira_em) < new Date() ? ['Link expirado', 'late'] : ['Aguardando assinatura', 'soon'];
+const DOC_AVISO = t => `<div class="note"><span>${t}</span></div>`;
+async function tabDocs(b, p){
+  if (!cloud) { b.innerHTML = DOC_AVISO('Contratos e termos só funcionam com o login ativo. O modo de teste não guarda documentos.'); return; }
+  b.innerHTML = '<p class="sub">Carregando…</p>';
+  let docs; try { docs = await cloud.docs.listar(p.id); } catch (e) { console.error(e); b.innerHTML = DOC_AVISO('Não foi possível carregar os documentos. Verifique a conexão.'); return; }
+  const linha = d => { const [txt, cls] = docEstado(d), link = docLink(d), vivo = !d.assinado_em && cls !== 'late', wa = vivo && waLink(p, tplOf('contrato'), {link});
+    return `<div class="item static" style="flex-wrap:wrap"><div class="grow" style="min-width:150px"><span class="t">${esc(d.titulo)}</span><div class="m">criado em ${new Date(d.created_at).toLocaleDateString('pt-BR')}</div></div><span class="pill ${cls}">${txt}</span>
+      <div class="actions" style="width:100%">${d.assinado_em ? (d.drive_file_id ? `<a class="btn small" href="https://drive.google.com/file/d/${encodeURIComponent(d.drive_file_id)}/view" target="_blank" rel="noopener">Abrir no Drive</a>` : '') : `${wa ? `<a class="btn small" data-wa="${d.id}" href="${wa}" target="_blank" rel="noopener">Enviar por WhatsApp</a>` : ''}${vivo ? `<button class="btn ghost small" data-cp="${d.id}" type="button">Copiar link</button>` : ''}<button class="btn danger small" data-del="${d.id}" type="button">Excluir</button>`}</div></div>`; };
+  b.innerHTML = `<div class="actions"><button class="btn small" id="dc-novo" type="button">Novo documento</button><button class="btn ghost small" id="dc-mod" type="button">Modelos</button></div>
+    ${docs.length ? `<div class="list">${docs.map(linha).join('')}</div>` : '<div class="list"><div class="empty">Nenhum documento. Crie um contrato a partir de um modelo e envie o link pelo WhatsApp.</div></div>'}
+    <p class="src">A paciente abre o link no celular, lê, preenche os dados que faltam e assina na tela. O link vale 24 horas e uma única vez. O contrato assinado vai para a pasta dela no Google Drive e não fica guardado no painel.</p>`;
+  const achar = id => docs.find(d => d.id === id), recarrega = () => tabDocs(b, p);
+  $('#dc-novo').onclick = () => docNovo(p, recarrega);
+  $('#dc-mod').onclick = modelosSheet;
+  $$('[data-wa]', b).forEach(a => a.onclick = () => { const d = achar(a.dataset.wa); registrarEnvio(p.id, 'contrato', 'contrato:' + d.id, msgText(p, tplOf('contrato'), {link: docLink(d)})); });
+  $$('[data-cp]', b).forEach(x => x.onclick = () => navigator.clipboard.writeText(docLink(achar(x.dataset.cp))).then(() => toast('Link copiado'), () => toast('Não foi possível copiar')));
+  $$('[data-del]', b).forEach(x => arm(x, async () => { try { await cloud.docs.apagar(x.dataset.del); recarrega(); } catch (e) { console.error(e); toast('Não foi possível excluir'); } }));
+}
+async function docNovo(p, depois){
+  let modelos; try { modelos = await cloud.docs.modelos(); } catch (e) { console.error(e); return toast('Não foi possível carregar os modelos'); }
+  if (!modelos.length) { toast('Cadastre um modelo primeiro'); return modelosSheet(); }
+  const ks = db.pacotes.filter(k => k.pid === p.id), pacoteTxt = k => { const s = svc(k.sid), n = k.parc.length;
+    return {objeto: (s ? s.nome : 'Pacote') + ' — ' + k.total + ' sessões', valor: k.valor === '' ? '' : money(k.valor), pagamento: n ? n + (n === 1 ? ' parcela' : ' parcelas') + ' de ' + money(k.parc[0].valor) + (k.forma ? ' (' + k.forma + ')' : '') + ', primeiro vencimento em ' + fmtD(k.parc[0].venc) : ''}; };
+  openSheet('Novo documento', `<div class="form">
+    <div class="f"><label for="n-mod">Modelo</label><select id="n-mod">${modelos.map(m => `<option value="${m.id}">${esc(m.titulo)}</option>`).join('')}</select></div>
+    <div class="f"><label for="n-pac">Pacote da paciente</label><select id="n-pac"><option value="">Sem pacote (preencher à mão)</option>${ks.map(k => `<option value="${k.id}">${esc((svc(k.sid) || {nome: 'Pacote'}).nome)} · ${k.total} sessões</option>`).join('')}</select></div>
+    ${area('n-obj', 'Objeto: procedimentos, sessões e intervalo')}${field('n-val', 'Valor total', '')}${area('n-pag', 'Forma e condições de pagamento')}<p class="sub" style="margin:0">O link vale 24 horas. Depois disso ele não abre mais, nem para assinar nem para consultar. CPF, RG e endereço vêm da ficha; o que faltar, a paciente preenche ao assinar.</p>
+    <p class="sub" id="n-erro" role="alert" style="margin:0;color:var(--bad)"></p>
+    <div class="actions"><button class="btn" id="n-ok" type="button">Criar documento</button></div></div>`);
+  $('#n-pac').onchange = () => { const k = ks.find(x => x.id === val('n-pac')); if (!k) return; const t = pacoteTxt(k); $('#n-obj').value = t.objeto; $('#n-val').value = t.valor; $('#n-pag').value = t.pagamento; };
+  $('#n-ok').onclick = async () => { const m = modelos.find(x => x.id === val('n-mod'));
+    const texto = preencherContrato(m.texto, {nome: p.nome, nascimento: p.nasc ? fmtD(p.nasc) : '', telefone: p.tel, cpf: p.cpf, rg: p.rg, endereco: p.end, cep: p.cep, data: fmtD(today()), objeto: val('n-obj'), valor_total: val('n-val'), pagamento: val('n-pag')});
+    const falta = faltandoContrato(texto); if (falta.length) { $('#n-erro').textContent = 'Preencha: ' + falta.join(', ') + '.'; return; }
+    $('#n-ok').disabled = true;
+    try { await cloud.docs.criar({paciente_id: p.id, modelo_id: m.id, tipo: m.tipo, titulo: m.titulo, texto_final: texto, token: novoToken(), expira_em: new Date(Date.now() + 24 * 36e5).toISOString()}); closeSheet(); toast('Documento criado. Envie o link: vale 24 horas.'); depois(); }
+    catch (e) { console.error(e); $('#n-ok').disabled = false; $('#n-erro').textContent = 'Não foi possível criar agora. Tente de novo.'; } };
+}
+async function modelosSheet(){
+  let ms; try { ms = await cloud.docs.modelos(); } catch (e) { console.error(e); return toast('Não foi possível carregar os modelos'); }
+  openSheet('Modelos de documento', `<div class="form"><div class="list">${ms.length ? ms.map(m => `<div class="item static"><div class="grow"><span class="t">${esc(m.titulo)}</span><div class="m">${esc(m.tipo)}</div></div><button class="btn ghost small" data-m="${m.id}" type="button">Editar</button></div>`).join('') : '<div class="empty">Nenhum modelo.</div>'}</div>
+    <div class="actions"><button class="btn" id="m-novo" type="button">Novo modelo</button></div></div>`);
+  $$('[data-m]').forEach(x => x.onclick = () => modeloForm(ms.find(m => m.id === x.dataset.m)));
+  $('#m-novo').onclick = () => modeloForm(null);
+}
+function modeloForm(m){
+  openSheet(m ? 'Editar modelo' : 'Novo modelo', `<div class="form">${field('m-tit', 'Título', m ? m.titulo : '')}${select('m-tipo', 'Tipo', [['contrato', 'Contrato'], ['termo', 'Termo'], ['ficha', 'Ficha']], m ? m.tipo : 'contrato')}
+    ${area('m-txt', 'Texto', m ? m.texto : '')}
+    <p class="sub" style="margin:0">Preenchidos pelo painel (da ficha e do pacote): {{nome}} {{nascimento}} {{telefone}} {{cpf}} {{rg}} {{endereco}} {{cep}} {{data}} {{objeto}} {{valor_total}} {{pagamento}}. Se algum dos dados da ficha estiver vazio, a paciente completa ao assinar. {{data_hora}} vira a data e hora da assinatura.</p>
+    <div class="actions"><button class="btn" id="m-ok" type="button">Salvar</button>${m ? '<button class="btn danger" id="m-off" type="button">Desativar</button>' : ''}</div></div>`);
+  $('#m-txt').style.minHeight = '340px';
+  $('#m-ok').onclick = async () => { if (!val('m-tit') || !val('m-txt')) return toast('Informe título e texto');
+    try { await cloud.docs.salvarModelo({...(m ? {id: m.id} : {}), titulo: val('m-tit'), tipo: val('m-tipo'), texto: $('#m-txt').value, ativo: true}); toast('Modelo salvo'); modelosSheet(); } catch (e) { console.error(e); toast('Não foi possível salvar'); } };
+  if (m) arm($('#m-off'), async () => { try { await cloud.docs.salvarModelo({id: m.id, titulo: m.titulo, tipo: m.tipo, texto: m.texto, ativo: false}); modelosSheet(); } catch (e) { console.error(e); toast('Não foi possível desativar'); } });
 }
 
 /* ---------- serviços ---------- */

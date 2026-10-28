@@ -4,6 +4,7 @@
 
 const N = v => (v === '' || v === undefined ? null : v);
 const CHUNK = 400;
+const opt = o => Object.fromEntries(Object.entries(o).filter(([, v]) => v));
 const P2 = n => String(n).padStart(2, '0');
 /* agenda: o app usa hora local 'AAAA-MM-DDTHH:MM'; o banco guarda timestamptz */
 const localIso = ts => { const d = new Date(ts); return `${d.getFullYear()}-${P2(d.getMonth() + 1)}-${P2(d.getDate())}T${P2(d.getHours())}:${P2(d.getMinutes())}`; };
@@ -12,7 +13,7 @@ export function toRows(db){
   const known = new Set(db.services.map(s => s.id)), pats = new Set(db.patients.map(p => p.id)), pk = (db.pacotes || []).filter(k => pats.has(k.pid));
   return {
     servicos: db.services.map((s, i) => ({id: s.id, categoria: s.cat, nome: s.nome, preco_pix: N(s.pix), preco_cartao: N(s.card), duracao_min: N(s.dur), retorno_dias: N(s.ret), pacotes: s.pacotes || [], ordem: i})),
-    pacientes: db.patients.map(p => ({id: p.id, nome: p.nome, telefone: N(p.tel), nascimento: N(p.nasc), instagram: N(p.insta), origem: N(p.origem), observacoes: N(p.obs), consentimento_ok: !!(p.lgpd && p.lgpd.ok), consentimento_em: N(p.lgpd && p.lgpd.data), avaliacao: p.aval || {}, anamnese: p.anam || {}, ciclo: p.ciclo || {}})),
+    pacientes: db.patients.map(p => ({id: p.id, nome: p.nome, telefone: N(p.tel), nascimento: N(p.nasc), instagram: N(p.insta), origem: N(p.origem), observacoes: N(p.obs), consentimento_ok: !!(p.lgpd && p.lgpd.ok), consentimento_em: N(p.lgpd && p.lgpd.data), avaliacao: p.aval || {}, anamnese: p.anam || {}, ciclo: p.ciclo || {}, cpf: N(p.cpf), rg: N(p.rg), endereco: N(p.end), cep: N(p.cep), imagem_publicidade: N(p.img), imagem_publicidade_em: N(p.imgEm)})),
     atendimentos: db.patients.flatMap(p => p.atend.map(a => ({id: a.id, paciente_id: p.id, data: a.data, servico_id: known.has(a.servicoId) ? a.servicoId : null, regiao: N(a.regiao), produto: N(a.produto), lote: N(a.lote), sessao: N(a.sessao), valor: N(a.valor), evolucao: N(a.evolucao), retorno_em: N(a.retorno)}))),
     agendamentos: (db.agenda || []).map(a => ({id: a.id, paciente_id: pats.has(a.pid) ? a.pid : null, servico_id: known.has(a.sid) ? a.sid : null, inicio: new Date(a.ini).toISOString(), fim: new Date(new Date(a.ini).getTime() + (a.dur || 30) * 60000).toISOString(), status: a.status, observacoes: N(a.obs), google_event_id: N(a.gid), remarcacoes: a.rem || []})),
     pacotes_paciente: pk.map(k => ({id: k.id, paciente_id: k.pid, servico_id: known.has(k.sid) ? k.sid : null, sessoes_total: k.total, sessoes_usadas: k.usadas, valor_total: N(k.valor), valor_pago: k.parc.filter(x => x.pago).reduce((t, x) => t + Number(x.valor), 0), criado_em: k.criado, validade: N(k.validade)})),
@@ -27,7 +28,7 @@ export function fromRows(sv, pa, at, ms = [], tpl = {}, ag = [], pk = [], lc = [
   return {
     v: 1,
     services: sv.map(s => ({id: s.id, cat: s.categoria, nome: s.nome, pix: s.preco_pix, card: s.preco_cartao, dur: s.duracao_min, ret: s.retorno_dias, pacotes: s.pacotes || []})),
-    patients: pa.map(p => ({id: p.id, nome: p.nome, tel: p.telefone || '', nasc: p.nascimento || '', insta: p.instagram || '', origem: p.origem || '', obs: p.observacoes || '', lgpd: {ok: !!p.consentimento_ok, data: p.consentimento_em || ''}, aval: p.avaliacao || {}, anam: p.anamnese || {}, ...(p.ciclo && Object.keys(p.ciclo).length ? {ciclo: p.ciclo} : {}), atend: byP.get(p.id) || []})),
+    patients: pa.map(p => ({id: p.id, nome: p.nome, tel: p.telefone || '', nasc: p.nascimento || '', insta: p.instagram || '', origem: p.origem || '', obs: p.observacoes || '', lgpd: {ok: !!p.consentimento_ok, data: p.consentimento_em || ''}, aval: p.avaliacao || {}, anam: p.anamnese || {}, ...(p.ciclo && Object.keys(p.ciclo).length ? {ciclo: p.ciclo} : {}), ...opt({cpf: p.cpf, rg: p.rg, end: p.endereco, cep: p.cep, img: p.imagem_publicidade, imgEm: p.imagem_publicidade_em}), atend: byP.get(p.id) || []})),
     msgs: ms.map(m => ({id: m.id, pid: m.paciente_id, tipo: m.tipo, chave: m.chave || '', texto: m.texto || '', em: m.enviado_em})),
     tpl,
     pacotes: pk.map(k => { const ps = lc.filter(l => l.pacote_id === k.id).sort((a, b) => a.data.localeCompare(b.data) || (a.descricao || '').localeCompare(b.descricao || '', undefined, {numeric: true}));
@@ -121,6 +122,17 @@ export function createCloud(sb, {retryMs = 6000, debounceMs = 700} = {}){
       return db;
     },
     queue(db){ latest = db; pending = true; status('pending'); clearTimeout(timer); timer = setTimeout(flush, debounceMs); },
+    /* documentos e modelos: direto no banco (não passam pela sincronização do painel) porque a assinatura acontece fora dele */
+    docs: {
+      async listar(pid){
+        /* contrato que venceu sem assinatura perde o texto e o link */
+        await sb.from('documentos').update({texto_final: null, token: null}).eq('paciente_id', pid).is('assinado_em', null).lt('expira_em', new Date().toISOString());
+        const {data, error} = await sb.from('documentos').select('id,tipo,titulo,assinado_em,expira_em,token,drive_file_id,created_at').eq('paciente_id', pid).order('created_at', {ascending: false}); if (error) throw error; return data; },
+      async criar(row){ const {data, error} = await sb.from('documentos').insert(row).select('id,token').single(); if (error) throw error; return data; },
+      async apagar(id){ const {error} = await sb.from('documentos').delete().eq('id', id); if (error) throw error; },
+      async modelos(){ const {data, error} = await sb.from('modelos_documento').select('*').eq('ativo', true).order('titulo'); if (error) throw error; return data; },
+      async salvarModelo(row){ const {error} = await sb.from('modelos_documento').upsert(row, {onConflict: 'id'}); if (error) throw error; },
+    },
     flush,
     get pending(){ return pending; },
     get ready(){ return ready; },
