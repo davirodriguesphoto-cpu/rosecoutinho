@@ -141,7 +141,7 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center;justify-conten
 .chart .bar{fill:var(--bar)}
 .chart .bar.partial{fill:var(--bar2);stroke:var(--bar);stroke-dasharray:3 3}
 .chart .val{fill:var(--fg);font:600 11px var(--body);font-variant-numeric:tabular-nums}
-.chart .mes{fill:var(--muted);font:600 10px var(--display);letter-spacing:.1em;text-transform:uppercase}
+.chart .mes{fill:var(--muted);font:600 11px var(--display);letter-spacing:.1em;text-transform:uppercase}
 .chart .base{stroke:var(--line)}
 .rank{display:flex;flex-direction:column;gap:12px}
 .rank .r{display:grid;gap:5px}
@@ -339,3 +339,11 @@ a.t{display:inline-block;padding:6px 0}
 details.group>summary{min-height:44px;align-items:center}
 .bdg{font-size:11px}
 a.t{padding:12px 0}
+
+/* rodada 3: envio com desfazer e regras recolhidas */
+.enviado{display:flex;align-items:center;gap:6px;flex:none}
+.enviado .linkbtn{color:var(--link);min-height:44px}
+details.como{padding:4px 2px}
+details.como>summary{cursor:pointer;color:var(--link);font-weight:700;font-size:13.5px;min-height:44px;display:flex;align-items:center}
+details.como>p{margin:0 0 6px}
+
