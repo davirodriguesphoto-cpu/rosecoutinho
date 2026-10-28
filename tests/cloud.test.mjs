@@ -3,12 +3,12 @@ import { createCloud, toRows, fromRows } from '../src/lib/cloud-core.js';
 
 /* Supabase simulado em memória: guarda linhas por tabela e registra cada chamada. */
 function fakeSb(){
-  const t = {servicos: new Map(), pacientes: new Map(), atendimentos: new Map()};
+  const t = {servicos: new Map(), pacientes: new Map(), atendimentos: new Map(), mensagens: new Map(), config: new Map()};
   const calls = []; let failNext = 0, delayMs = 0;
   const wait = () => new Promise(r => setTimeout(r, delayMs));
   const from = name => ({
     select: () => { const q = {order: () => q, range: async (a, b) => ({data: [...t[name].values()].slice(a, b + 1), error: null})}; return q; },
-    upsert: async (rows) => { calls.push(['upsert', name, rows.length]); await wait(); if (failNext > 0) { failNext--; return {error: new Error('rede')}; } rows.forEach(r => t[name].set(r.id, structuredClone(r))); return {error: null}; },
+    upsert: async (rows) => { rows = [].concat(rows); calls.push(['upsert', name, rows.length]); await wait(); if (failNext > 0) { failNext--; return {error: new Error('rede')}; } rows.forEach(r => t[name].set(r.id ?? r.chave, structuredClone(r))); return {error: null}; },
     delete: () => ({in: async (_c, ids) => { calls.push(['delete', name, ids.length]); await wait(); if (failNext > 0) { failNext--; return {error: new Error('rede')}; } ids.forEach(i => t[name].delete(i)); return {error: null}; }}),
   });
   return {from, t, calls, fail: n => failNext = n, delay: ms => delayMs = ms, auth: {}};
@@ -93,5 +93,14 @@ function fakeAuth(st){
   await assert.rejects(c.verifyCode(e.factorId, '000000')); assert.equal(await c.authState(), 'enroll');
   await c.verifyCode(e.factorId, '123 456'); assert.equal(f.log.at(-1)[2], '123456'); assert.equal(await c.authState(), 'ready');
   ok('cadastro do 2º fator: descarta tentativa antiga, rejeita código errado, aceita código com espaço'); }
+
+/* 11. lembretes enviados, modelos de mensagem e ciclo voltam iguais */
+{ const sb = fakeSb(), c = createCloud(sb, opts); const db = await c.load(seed);
+  db.patients.push({id: 'p1', nome: 'Ana', tel: '', nasc: '', insta: '', origem: '', obs: '', lgpd: {ok: false, data: ''}, aval: {}, anam: {}, ciclo: {inicios: ['2026-09-01']}, atend: []});
+  db.msgs = [{id: 'm1', pid: 'p1', tipo: 'aniversario', chave: 'aniversario:2026', texto: 'Oi', em: '2026-10-28T10:00:00.000Z'}]; db.tpl = {aniversario: 'Parabéns, {nome}!'};
+  c.queue(db); await sleep(60);
+  const back = await createCloud(sb, opts).load(seed);
+  assert.deepEqual(back.msgs, db.msgs); assert.deepEqual(back.tpl, db.tpl); assert.deepEqual(back.patients[0].ciclo, {inicios: ['2026-09-01']});
+  sb.calls.length = 0; db.msgs = []; c.queue(db); await sleep(60); assert.deepEqual(sb.calls, [['delete', 'mensagens', 1]]); ok('mensagens, modelos e ciclo sincronizam e apagam'); }
 
 console.log(`\n${n} testes passaram`);

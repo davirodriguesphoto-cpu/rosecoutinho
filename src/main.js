@@ -41,9 +41,9 @@ function seed(){
       atend.push({id: uid(), data, servicoId: s.id, regiao: '', produto: '', lote: '', sessao: '', valor: s.pix ?? '', evolucao: '', retorno: addDays(data, s.ret)});
       d -= Math.round(14 + rnd() * 30 + (s.ret > 60 ? 40 : 0)); }
     return mk(i, atend); });
-  return {v: 1, services: SERVICES.map(x => ({...x})), patients};
+  return {v: 1, services: SERVICES.map(x => ({...x})), patients, msgs: [], tpl: {}};
 }
-let db = {v: 1, services: [], patients: []};
+let db = {v: 1, services: [], patients: [], msgs: [], tpl: {}};
 
 /* ---------- interface base ---------- */
 function toast(msg){ const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 2200); }
@@ -66,12 +66,13 @@ let ptab = 'dados';
 function route(){
   const h = location.hash.slice(1) || 'inicio';
   const m = h.match(/^paciente-([\w-]+)$/);
-  const tab = m ? 'pacientes' : (['inicio','pacientes','servicos'].includes(h) ? h : 'inicio');
+  const tab = m ? 'pacientes' : (['inicio','pacientes','servicos','lembretes'].includes(h) ? h : 'inicio');
   $$('.tabs a').forEach(a => a.dataset.tab === tab ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'));
   const app = $('#app');
   if (m) { const p = db.patients.find(x => x.id === m[1]); p ? viewPaciente(app, p) : (location.hash = '#pacientes'); }
   else if (tab === 'pacientes') viewPacientes(app);
   else if (tab === 'servicos') viewServicos(app);
+  else if (tab === 'lembretes') viewLembretes(app);
   else viewInicio(app);
 }
 window.addEventListener('hashchange', () => { ptab = 'dados'; closeSheet(); route(); window.scrollTo(0, 0); });
@@ -79,16 +80,24 @@ window.addEventListener('hashchange', () => { ptab = 'dados'; closeSheet(); rout
 /* ---------- início: painel de gestão ---------- */
 const SUMIDA_DIAS = 90, INATIVA_DIAS = 365;
 const MES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
-const MSG_SUMIDA = 'Oi, {nome}! Tudo bem? Faz um tempinho que não te vejo por aqui na Rose Coutinho. Como você está? Posso ver um horário pra você essa semana?';
-const MSG_RETORNO = 'Oi, {nome}! Está chegando a hora do seu retorno ({servico}). Quer que eu veja um horário pra você?';
+const TPL_PADRAO = {
+  aniversario: 'Oi, {nome}! Passando para te desejar um feliz aniversário! Que o seu novo ciclo seja lindo e cheio de saúde. Um beijo da Rose Coutinho.',
+  manutencao: 'Oi, {nome}! Está chegando a hora do seu retorno ({servico}). Quer que eu veja um horário pra você?',
+  sumida: 'Oi, {nome}! Tudo bem? Faz um tempinho que não te vejo por aqui na Rose Coutinho. Como você está? Posso ver um horário pra você essa semana?',
+  procedimento: 'Oi, {nome}! Passando para lembrar do seu horário amanhã, {data}: {servico}. Posso confirmar?',
+  pagamento: 'Oi, {nome}! Lembrando que o vencimento do seu pagamento é {data}. Qualquer dúvida é só me chamar.',
+  fim_plano: 'Oi, {nome}! Seu plano ({servico}) termina em {data}. Vamos conversar sobre a continuidade do seu tratamento?',
+};
+const tplOf = k => (db.tpl && db.tpl[k]) || TPL_PADRAO[k];
 const monthAdd = (key, n) => { const [y, m] = key.split('-').map(Number); const d = new Date(y, m - 1 + n, 1); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
 const money0 = n => 'R$ ' + Math.round(n).toLocaleString('pt-BR');
 const short = n => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace('.', ',') + 'k' : String(Math.round(n));
 const firstName = n => n.trim().split(/\s+/)[0];
-function waLink(p, tpl, servico){
+const msgText = (p, tpl, servico, data) => tpl.replace('{nome}', firstName(p.nome)).replace('{servico}', servico || 'procedimento').replace('{data}', data ? fmtD(data).slice(0, 5) : '');
+function waLink(p, tpl, servico, data){
   const d = (p.tel || '').replace(/\D/g, ''); if (d.length < 10) return '';
   const num = d.length >= 12 && d.startsWith('55') ? d : '55' + d;
-  return 'https://wa.me/' + num + '?text=' + encodeURIComponent(tpl.replace('{nome}', firstName(p.nome)).replace('{servico}', servico || 'procedimento'));
+  return 'https://wa.me/' + num + '?text=' + encodeURIComponent(msgText(p, tpl, servico, data));
 }
 function lastAtend(p){ return [...p.atend].sort((a, b) => b.data.localeCompare(a.data))[0]; }
 
@@ -132,7 +141,7 @@ function viewInicio(app){
     return {cls, txt: (cls === 'flat' ? '= ' : cls === 'up' ? '▲ ' : '▼ ') + Math.abs(Math.round(k.rel * 100)) + '% vs mês anterior'}; };
   const mesNome = new Date(+D.mes.slice(0, 4), +D.mes.slice(5) - 1, 1).toLocaleDateString('pt-BR', {month: 'long'});
   const maxS = Math.max(...D.porServico.map(x => x.rec), 1), maxC = Math.max(...D.porCategoria.map(x => x.rec), 1);
-  const linha = (x, tipo) => { const s = svc(x.l.servicoId), nome = esc(x.p.nome), link = waLink(x.p, tipo === 'sumida' ? MSG_SUMIDA : MSG_RETORNO, s && s.nome);
+  const linha = (x, tipo) => { const s = svc(x.l.servicoId), nome = esc(x.p.nome), link = waLink(x.p, tipo === 'sumida' ? tplOf('sumida') : tplOf('manutencao'), s && s.nome);
     return `<div class="item static"><a class="avatar" href="#paciente-${x.p.id}" aria-label="Abrir ficha de ${nome}" style="text-decoration:none">${esc(initials(x.p.nome))}</a><div class="grow"><a class="t" href="#paciente-${x.p.id}" style="color:inherit;text-decoration:none">${nome}</a><div class="m">${tipo === 'sumida' ? 'última visita há ' + x.dias + ' dias' : esc(s ? s.nome : 'Retorno') + ' · venceu há ' + x.atraso + ' dias'}</div></div>${link ? `<a class="btn small" href="${link}" target="_blank" rel="noopener">Chamar</a>` : '<span class="pill">sem telefone</span>'}</div>`; };
   const lista = (rows, tipo, vazio) => rows.length ? `<div class="list">${rows.slice(0, 6).map(x => linha(x, tipo)).join('')}${rows.length > 6 ? `<div class="empty" style="padding:10px">e mais ${rows.length - 6}</div>` : ''}</div>` : `<div class="list"><div class="empty">${vazio}</div></div>`;
   const receitaK = K[0], alerta = receitaK.rel != null && receitaK.rel <= -0.15 ? `<div class="alert" role="alert">Receita ${Math.abs(Math.round(receitaK.rel * 100))}% abaixo do mesmo período do mês anterior</div>` : '';
@@ -155,7 +164,7 @@ function viewInicio(app){
       <li><span class="tag bad">Piorou</span><span>${pior ? esc(fmtK(pior)) : 'Nada abaixo do mês anterior até agora.'}</span></li>
       <li><span class="tag act">Exige ação</span><span>${acoes.length ? esc(acoes.join(' e ')) : 'Nenhuma pendência de retorno ou reativação.'}</span></li></ul></div></section>
     <p class="src">Fonte: atendimentos registrados no app. A receita soma só atendimentos com valor informado. Comparação: dias 1 a ${dia} deste mês contra dias 1 a ${dia} do mês anterior. Paciente novo: primeira visita registrada no app. Sumido: última visita entre ${SUMIDA_DIAS} dias e 1 ano.</p>`;
-  const rm = $('#rm-demo'); if (rm) rm.onclick = () => { db.patients = db.patients.filter(p => !p.demo); save(); route(); toast('Exemplos removidos'); };
+  const rm = $('#rm-demo'); if (rm) rm.onclick = () => { db.patients = db.patients.filter(p => !p.demo); db.msgs = db.msgs.filter(m => db.patients.some(p => p.id === m.pid)); save(); route(); toast('Exemplos removidos'); };
 }
 
 /* ---------- pacientes ---------- */
@@ -216,7 +225,7 @@ function importForm(){
 }
 
 /* ---------- ficha do paciente ---------- */
-const TABS = [['dados', 'Dados'], ['aval', 'Avaliação'], ['anam', 'Anamnese'], ['atend', 'Atendimentos']];
+const TABS = [['dados', 'Dados'], ['aval', 'Avaliação'], ['anam', 'Anamnese'], ['atend', 'Atendimentos'], ['ciclo', 'Ciclo']];
 const ANAM = [['gestante', 'Gestante ou lactante'], ['alergia', 'Alergias (medicamentos, látex, anestésicos, cosméticos)'], ['medic', 'Uso contínuo de medicamentos'], ['anticoag', 'Anticoagulante ou AAS'], ['diabetes', 'Diabetes'], ['hipert', 'Hipertensão'], ['tireoide', 'Alteração de tireoide'], ['cardio', 'Doença cardíaca ou marca-passo'], ['metal', 'Implantes metálicos ou próteses'], ['onco', 'Histórico oncológico'], ['autoimune', 'Doença autoimune'], ['queloide', 'Tendência a queloide ou má cicatrização'], ['herpes', 'Herpes labial recorrente'], ['isotret', 'Isotretinoína nos últimos 6 meses'], ['cirurgia', 'Cirurgias recentes ou plásticas'], ['procs', 'Procedimentos estéticos anteriores'], ['fuma', 'Fumante'], ['sol', 'Exposição solar frequente ou bronzeamento recente']];
 function viewPaciente(app, p){
   app.innerHTML = `
@@ -226,7 +235,7 @@ function viewPaciente(app, p){
     <div id="pbody"></div>`;
   $$('.chip', app).forEach(c => c.onclick = () => { ptab = c.dataset.t; viewPaciente(app, p); });
   const b = $('#pbody');
-  ({dados: tabDados, aval: tabAval, anam: tabAnam, atend: tabAtend})[ptab](b, p);
+  ({dados: tabDados, aval: tabAval, anam: tabAnam, atend: tabAtend, ciclo: tabCiclo})[ptab](b, p);
 }
 function tabDados(b, p){
   b.innerHTML = `<div class="card form">${field('d-nome', 'Nome completo', p.nome)}
@@ -238,7 +247,7 @@ function tabDados(b, p){
   $('#d-ok').onclick = () => { const nome = val('d-nome'); if (!nome) return toast('Informe o nome');
     const ok = $('#d-lgpd').checked; Object.assign(p, {nome, tel: val('d-tel'), nasc: val('d-nasc'), insta: val('d-insta'), origem: val('d-origem'), obs: val('d-obs')});
     p.lgpd = {ok, data: ok ? ((p.lgpd && p.lgpd.ok && p.lgpd.data) || today()) : ''}; save(); route(); toast('Salvo'); };
-  arm($('#d-del'), () => { db.patients = db.patients.filter(x => x.id !== p.id); save(); location.hash = '#pacientes'; });
+  arm($('#d-del'), () => { db.patients = db.patients.filter(x => x.id !== p.id); db.msgs = db.msgs.filter(m => m.pid !== p.id); save(); location.hash = '#pacientes'; });
 }
 function tabAval(b, p){
   const a = p.aval || {}, peso = parseFloat(String(a.peso || '').replace(',', '.')), alt = parseFloat(String(a.altura || '').replace(',', '.'));
@@ -280,16 +289,89 @@ function atendForm(p, a){
     ${field('x-reg', 'Região tratada', a.regiao)}
     <div class="two">${field('x-prod', 'Produto', a.produto)}${field('x-lote', 'Lote', a.lote)}</div>
     <div class="two">${field('x-ses', 'Sessão', a.sessao, 'text', 'placeholder="ex.: 3 de 10"')}${field('x-val', 'Valor cobrado (R$)', a.valor, 'text', 'inputmode="decimal"')}</div>
-    ${area('x-evo', 'Evolução', a.evolucao)}${field('x-ret', 'Retorno previsto', a.retorno, 'date')}
+    ${area('x-evo', 'Evolução', a.evolucao)}${field('x-ret', 'Retorno previsto', a.retorno, 'date')}<p class="sub" id="x-aviso" role="status" style="margin:0;color:var(--warn)"></p>
     <div class="actions"><button class="btn" id="x-ok" type="button">Salvar</button>${e ? '<button class="btn danger" id="x-del" type="button">Excluir</button>' : ''}</div></div>`);
   let retTouched = e, valTouched = e;
   $('#x-ret').oninput = () => retTouched = true; $('#x-val').oninput = () => valTouched = true;
   const sync = () => { const s = svc($('#x-svc').value); if (!s) return; if (!valTouched && s.pix != null) $('#x-val').value = s.pix; if (!retTouched) $('#x-ret').value = addDays($('#x-data').value || today(), s.ret); };
-  $('#x-svc').onchange = sync; $('#x-data').onchange = sync;
+  const aviso = () => { $('#x-aviso').textContent = cicloAviso(p, val('x-ret')); };
+  $('#x-ret').addEventListener('input', aviso); aviso();
+  $('#x-svc').onchange = () => { sync(); aviso(); }; $('#x-data').onchange = () => { sync(); aviso(); };
   $('#x-ok').onclick = () => { if (!val('x-svc')) return toast('Escolha o serviço');
     const v = val('x-val').replace(',', '.'); const n = {id: a.id || uid(), data: val('x-data') || today(), servicoId: val('x-svc'), regiao: val('x-reg'), produto: val('x-prod'), lote: val('x-lote'), sessao: val('x-ses'), valor: v === '' ? '' : Number(v), evolucao: val('x-evo'), retorno: val('x-ret')};
     if (e) Object.assign(a, n); else p.atend.push(n); save(); closeSheet(); route(); toast('Atendimento salvo'); };
   if (e) arm($('#x-del'), () => { p.atend = p.atend.filter(x => x.id !== a.id); save(); closeSheet(); route(); });
+}
+
+/* ---------- ciclo menstrual (mesma lógica do WÓD'IO: a previsão liga depois de 3 ciclos medidos) ---------- */
+const MENSTR_DIAS = 5, CICLOS_MIN = 3;
+function cicloCalc(p){
+  const ini = [...((p.ciclo && p.ciclo.inicios) || [])].sort(), ints = [];
+  for (let i = 1; i < ini.length; i++) { const d = diffDays(ini[i], ini[i - 1]); if (d >= 18 && d <= 45) ints.push(d); }
+  const i6 = ints.slice(-6), med = i6.length ? [...i6].sort((a, b) => a - b)[Math.floor(i6.length / 2)] : 0;
+  const reg = i6.filter(d => Math.abs(d - med) <= 5), u = reg.length >= CICLOS_MIN ? reg : i6; /* ignora ciclos muito irregulares */
+  const ativo = u.length >= CICLOS_MIN, media = ativo ? Math.round(u.reduce((a, b) => a + b, 0) / u.length) : null;
+  return {ini, medidos: ints.length, ativo, media};
+}
+function cicloProxima(C){ if (!C.ativo) return ''; let n = addDays(C.ini[C.ini.length - 1], C.media); while (n < today()) n = addDays(n, C.media); return n; }
+/* texto de aviso quando a data cai (ou pode cair) na menstruação; vazio se não há motivo */
+function cicloAviso(p, iso){
+  if (!iso) return '';
+  const C = cicloCalc(p); if (!C.ini.length) return '';
+  const dentro = s => iso >= addDays(s, -1) && iso <= addDays(s, MENSTR_DIAS - 1);
+  if (C.ini.some(dentro)) return 'Cai num período menstrual já registrado.';
+  if (C.ativo) for (let k = 1; k <= 6; k++) { const s = addDays(C.ini[C.ini.length - 1], C.media * k); if (dentro(s)) return 'Pode cair no período menstrual (início previsto por volta de ' + fmtD(s).slice(0, 5) + ').'; }
+  return '';
+}
+function tabCiclo(b, p){
+  const C = cicloCalc(p), prox = cicloProxima(C);
+  const status = !C.ini.length ? 'Nenhum registro ainda. Anote o início de cada menstruação que a paciente informar.'
+    : C.ativo ? `Ciclo médio de ${C.media} dias. Próxima menstruação prevista por volta de ${fmtD(prox).slice(0, 5)}. Ao marcar um retorno, o app avisa se a data cair nesse período.`
+    : `Coletando dados: ${C.medidos} de ${CICLOS_MIN} ciclos medidos. A previsão liga sozinha ao completar ${CICLOS_MIN}.`;
+  b.innerHTML = `<div class="card form"><p class="sub" style="margin:0">${esc(status)}</p>
+    <div class="two">${field('c-data', 'Início da menstruação', today(), 'date')}<div class="f"><label>&nbsp;</label><button class="btn" id="c-add" type="button">Registrar</button></div></div>
+    ${C.ini.length ? `<div class="list">${[...C.ini].reverse().slice(0, 8).map(d => `<div class="item static"><div class="grow"><span class="t">${fmtD(d)}</span></div><button class="btn ghost small" data-rm="${d}" type="button">Remover</button></div>`).join('')}</div>` : ''}</div>`;
+  $('#c-add').onclick = () => { const d = val('c-data'); if (!d) return toast('Informe a data');
+    const ini = (p.ciclo && p.ciclo.inicios) || []; if (ini.includes(d)) return toast('Essa data já está registrada');
+    p.ciclo = {inicios: [...ini, d].sort()}; save(); tabCiclo(b, p); toast('Registrado'); };
+  $$('[data-rm]', b).forEach(x => x.onclick = () => { p.ciclo = {inicios: p.ciclo.inicios.filter(d => d !== x.dataset.rm)}; save(); tabCiclo(b, p); });
+}
+
+/* ---------- lembretes por WhatsApp (a Rose só toca em enviar) ---------- */
+const TIPO_NOME = {aniversario: 'Aniversário', manutencao: 'Manutenção', sumida: 'Sumida', procedimento: 'Procedimento', pagamento: 'Pagamento', fim_plano: 'Fim de plano'};
+const MSG_ORDEM = ['aniversario', 'manutencao', 'sumida', 'procedimento', 'pagamento', 'fim_plano'];
+function lembretesData(){
+  const t = today(), D = dashData(), out = [];
+  const enviado = (pid, chave) => db.msgs.some(m => m.pid === pid && m.chave === chave);
+  const add = (p, tipo, chave, det, extra = {}) => out.push({p, tipo, chave, det, sent: enviado(p.id, chave), ...extra});
+  db.patients.forEach(p => { if (p.nasc && p.nasc.slice(5) === t.slice(5)) add(p, 'aniversario', 'aniversario:' + t.slice(0, 4), 'faz aniversário hoje' + (age(p.nasc) ? ' (' + age(p.nasc) + ')' : '')); });
+  db.patients.filter(p => p.atend.length).forEach(p => { const l = lastAtend(p), s = svc(l.servicoId);
+    if (diffDays(t, l.data) < SUMIDA_DIAS && l.retorno && l.retorno <= addDays(t, 3))
+      add(p, 'manutencao', 'manutencao:' + l.id, (s ? s.nome : 'Retorno') + (l.retorno < t ? ' · venceu há ' + diffDays(t, l.retorno) + ' dias' : l.retorno === t ? ' · é hoje' : ' · em ' + fmtD(l.retorno).slice(0, 5)), {servico: s && s.nome, data: l.retorno, aviso: cicloAviso(p, l.retorno)}); });
+  D.sumidos.forEach(x => add(x.p, 'sumida', 'sumida:' + t.slice(0, 7), 'última visita há ' + x.dias + ' dias'));
+  return out.sort((a, b) => a.sent - b.sent || MSG_ORDEM.indexOf(a.tipo) - MSG_ORDEM.indexOf(b.tipo));
+}
+function viewLembretes(app){
+  const L = lembretesData(), pend = L.filter(x => !x.sent), feitos = L.filter(x => x.sent).length;
+  const nomeDe = id => (db.patients.find(p => p.id === id) || {nome: 'Paciente removida'}).nome;
+  const linha = (x, i) => { const link = waLink(x.p, tplOf(x.tipo), x.servico, x.data);
+    return `<div class="item static"><a class="avatar" href="#paciente-${x.p.id}" aria-label="Abrir ficha de ${esc(x.p.nome)}" style="text-decoration:none">${esc(initials(x.p.nome))}</a><div class="grow"><a class="t" href="#paciente-${x.p.id}" style="color:inherit;text-decoration:none">${esc(x.p.nome)}</a><div class="m"><b>${TIPO_NOME[x.tipo]}</b> · ${esc(x.det)}</div>${x.aviso ? `<div class="m" style="color:var(--warn)">${esc(x.aviso)}</div>` : ''}</div>${link ? `<a class="btn small" data-send="${i}" href="${link}" target="_blank" rel="noopener">WhatsApp</a>` : '<span class="pill">sem telefone</span>'}</div>`; };
+  const recentes = [...db.msgs].sort((a, b) => b.em.localeCompare(a.em)).slice(0, 8);
+  app.innerHTML = `<div class="head"><div><h1>Lembretes</h1><p class="sub">${pend.length ? pend.length + ' para enviar hoje' : 'Nada para enviar agora'}${feitos ? ' · ' + feitos + ' já enviado' + (feitos > 1 ? 's' : '') : ''}</p></div><div class="actions"><button class="btn ghost small" id="l-tpl" type="button">Editar mensagens</button></div></div>
+    <section><div class="list">${pend.length ? pend.map(linha).join('') : '<div class="empty">Tudo em dia.</div>'}</div></section>
+    <section><h2>Enviados recentemente</h2><div class="list">${recentes.length ? recentes.map(m => `<div class="item static"><div class="grow"><span class="t">${esc(nomeDe(m.pid))}</span><div class="m">${TIPO_NOME[m.tipo] || 'Mensagem'} · ${new Date(m.em).toLocaleDateString('pt-BR')}</div></div></div>`).join('') : '<div class="empty">Nenhum envio registrado.</div>'}</div></section>
+    <p class="src">O botão abre o WhatsApp com a mensagem pronta; quem envia é a Rose. Ao tocar, o envio fica registrado e o lembrete sai da lista. Aniversário no dia; manutenção até 3 dias antes do retorno; sumida a partir de ${SUMIDA_DIAS} dias sem vir. Procedimento, pagamento e fim de plano entram com a agenda e os pacotes.</p>`;
+  $$('a[data-send]', app).forEach(a => a.onclick = () => { const x = pend[+a.dataset.send];
+    registrarEnvio(x.p.id, x.tipo, x.chave, msgText(x.p, tplOf(x.tipo), x.servico, x.data)); setTimeout(route, 400); });
+  $('#l-tpl').onclick = tplForm;
+}
+function registrarEnvio(pid, tipo, chave, texto){ db.msgs.push({id: uid(), pid, tipo, chave, texto, em: new Date().toISOString()}); save(); }
+function tplForm(){
+  openSheet('Mensagens do WhatsApp', `<div class="form"><p class="sub" style="margin:0">Use {nome}, {servico} e {data}. Procedimento, pagamento e fim de plano ficam prontos para quando essas telas entrarem.</p>
+    ${MSG_ORDEM.map(k => area('t-' + k, TIPO_NOME[k], tplOf(k))).join('')}
+    <div class="actions"><button class="btn" id="t-ok" type="button">Salvar</button><button class="btn ghost" id="t-rst" type="button">Voltar ao padrão</button></div></div>`);
+  $('#t-ok').onclick = () => { const tpl = {}; MSG_ORDEM.forEach(k => { const v = val('t-' + k); if (v && v !== TPL_PADRAO[k]) tpl[k] = v; }); db.tpl = tpl; save(); closeSheet(); route(); toast('Mensagens salvas'); };
+  $('#t-rst').onclick = () => { db.tpl = {}; save(); closeSheet(); route(); toast('Mensagens padrão'); };
 }
 
 /* ---------- serviços ---------- */
@@ -406,7 +488,7 @@ function viewConfig(){
   $('#app').innerHTML = '<div class="login card form"><h1 style="font-size:20px">Configuração pendente</h1><p style="margin:0">Faltam as variáveis do Supabase neste ambiente. Por segurança, o app não abre sem login. Veja o README, passo 3.</p></div>';
 }
 async function boot(){
-  if (!cloud) { if (!demoOk) return viewConfig(); db = localLoad() || seed(); chrome(true); route(); return; }
+  if (!cloud) { if (!demoOk) return viewConfig(); db = localLoad() || seed(); db.msgs = db.msgs || []; db.tpl = db.tpl || {}; chrome(true); route(); return; }
   cloud.onStatus(setSync); cloud.onSignOut(() => location.reload());
   $('#logout').onclick = async () => { await cloud.signOut(); location.reload(); };
   gate();

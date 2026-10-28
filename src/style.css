@@ -108,8 +108,8 @@ form,.form{display:flex;flex-direction:column;gap:14px}
 
 .tabs{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--surface);border-top:1px solid var(--line);
   padding:6px max(16px,env(safe-area-inset-left,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-right,0px))}
-.tabs .wrap{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
-.tabs a{display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 4px;border-radius:10px;text-decoration:none;color:var(--muted);font:600 11px var(--display);letter-spacing:.12em;text-transform:uppercase}
+.tabs .wrap{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.tabs a{display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px;border-radius:10px;text-decoration:none;color:var(--muted);font:600 10.5px var(--display);letter-spacing:.08em;text-transform:uppercase}
 .tabs a svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
 .tabs a[aria-current="page"]{color:var(--link);background:var(--tint)}
 

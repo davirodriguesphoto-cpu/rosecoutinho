@@ -9,18 +9,21 @@ export function toRows(db){
   const known = new Set(db.services.map(s => s.id));
   return {
     servicos: db.services.map((s, i) => ({id: s.id, categoria: s.cat, nome: s.nome, preco_pix: N(s.pix), preco_cartao: N(s.card), duracao_min: N(s.dur), retorno_dias: N(s.ret), pacotes: s.pacotes || [], ordem: i})),
-    pacientes: db.patients.map(p => ({id: p.id, nome: p.nome, telefone: N(p.tel), nascimento: N(p.nasc), instagram: N(p.insta), origem: N(p.origem), observacoes: N(p.obs), consentimento_ok: !!(p.lgpd && p.lgpd.ok), consentimento_em: N(p.lgpd && p.lgpd.data), avaliacao: p.aval || {}, anamnese: p.anam || {}})),
+    pacientes: db.patients.map(p => ({id: p.id, nome: p.nome, telefone: N(p.tel), nascimento: N(p.nasc), instagram: N(p.insta), origem: N(p.origem), observacoes: N(p.obs), consentimento_ok: !!(p.lgpd && p.lgpd.ok), consentimento_em: N(p.lgpd && p.lgpd.data), avaliacao: p.aval || {}, anamnese: p.anam || {}, ciclo: p.ciclo || {}})),
     atendimentos: db.patients.flatMap(p => p.atend.map(a => ({id: a.id, paciente_id: p.id, data: a.data, servico_id: known.has(a.servicoId) ? a.servicoId : null, regiao: N(a.regiao), produto: N(a.produto), lote: N(a.lote), sessao: N(a.sessao), valor: N(a.valor), evolucao: N(a.evolucao), retorno_em: N(a.retorno)}))),
+    mensagens: (db.msgs || []).map(m => ({id: m.id, paciente_id: m.pid, tipo: m.tipo, chave: N(m.chave), texto: N(m.texto), enviado_em: m.em})),
   };
 }
 
-export function fromRows(sv, pa, at){
+export function fromRows(sv, pa, at, ms = [], tpl = {}){
   const byP = new Map();
   at.forEach(a => { if (!byP.has(a.paciente_id)) byP.set(a.paciente_id, []); byP.get(a.paciente_id).push({id: a.id, data: a.data, servicoId: a.servico_id || '', regiao: a.regiao || '', produto: a.produto || '', lote: a.lote || '', sessao: a.sessao || '', valor: a.valor ?? '', evolucao: a.evolucao || '', retorno: a.retorno_em || ''}); });
   return {
     v: 1,
     services: sv.map(s => ({id: s.id, cat: s.categoria, nome: s.nome, pix: s.preco_pix, card: s.preco_cartao, dur: s.duracao_min, ret: s.retorno_dias, pacotes: s.pacotes || []})),
-    patients: pa.map(p => ({id: p.id, nome: p.nome, tel: p.telefone || '', nasc: p.nascimento || '', insta: p.instagram || '', origem: p.origem || '', obs: p.observacoes || '', lgpd: {ok: !!p.consentimento_ok, data: p.consentimento_em || ''}, aval: p.avaliacao || {}, anam: p.anamnese || {}, atend: byP.get(p.id) || []})),
+    patients: pa.map(p => ({id: p.id, nome: p.nome, tel: p.telefone || '', nasc: p.nascimento || '', insta: p.instagram || '', origem: p.origem || '', obs: p.observacoes || '', lgpd: {ok: !!p.consentimento_ok, data: p.consentimento_em || ''}, aval: p.avaliacao || {}, anam: p.anamnese || {}, ...(p.ciclo && Object.keys(p.ciclo).length ? {ciclo: p.ciclo} : {}), atend: byP.get(p.id) || []})),
+    msgs: ms.map(m => ({id: m.id, pid: m.paciente_id, tipo: m.tipo, chave: m.chave || '', texto: m.texto || '', em: m.enviado_em})),
+    tpl,
   };
 }
 
@@ -28,7 +31,7 @@ const chunks = (arr, n = CHUNK) => { const out = []; for (let i = 0; i < arr.len
 const snapOf = rows => new Map(rows.map(r => [r.id, JSON.stringify(r)]));
 
 export function createCloud(sb, {retryMs = 6000, debounceMs = 700} = {}){
-  let snap = null, latest = null, timer = null, busy = false, again = false, pending = false, ready = false, loadedAt = 0;
+  let snapTpl = '{}', snap = null, latest = null, timer = null, busy = false, again = false, pending = false, ready = false, loadedAt = 0;
   let statusCb = () => {};
   const status = s => statusCb(s);
 
@@ -52,12 +55,14 @@ export function createCloud(sb, {retryMs = 6000, debounceMs = 700} = {}){
     for (const t of Object.keys(rows)) {
       plan[t] = {up: rows[t].filter(r => snap[t].get(r.id) !== now[t].get(r.id)), del: [...snap[t].keys()].filter(id => !now[t].has(id))};
     }
-    for (const t of ['servicos', 'pacientes', 'atendimentos']) {
+    for (const t of ['servicos', 'pacientes', 'atendimentos', 'mensagens']) {
       if (plan[t].up.length) { await upsert(t, plan[t].up); plan[t].up.forEach(r => snap[t].set(r.id, now[t].get(r.id))); }
     }
-    for (const t of ['atendimentos', 'pacientes', 'servicos']) {
+    for (const t of ['mensagens', 'atendimentos', 'pacientes', 'servicos']) {
       if (plan[t].del.length) { await remove(t, plan[t].del); plan[t].del.forEach(id => snap[t].delete(id)); }
     }
+    const tj = JSON.stringify(db.tpl || {});
+    if (tj !== snapTpl) { const {error} = await sb.from('config').upsert({chave: 'modelos_msg', valor: db.tpl || {}}, {onConflict: 'chave'}); if (error) throw error; snapTpl = tj; }
   }
 
   async function flush(){
@@ -94,9 +99,10 @@ export function createCloud(sb, {retryMs = 6000, debounceMs = 700} = {}){
     async factorId(){ const {data, error} = await sb.auth.mfa.listFactors(); if (error) throw error; const f = ((data && data.totp) || [])[0]; if (!f) throw new Error('sem fator verificado'); return f.id; },
     onSignOut(cb){ sb.auth.onAuthStateChange(ev => { if (ev === 'SIGNED_OUT') cb(); }); },
     async load(seedServices){
-      const [sv, pa, at] = await Promise.all([all('servicos', 'ordem'), all('pacientes', 'id'), all('atendimentos', 'id')]);
-      const db = fromRows(sv, pa, at);
-      snap = {servicos: new Map(), pacientes: new Map(), atendimentos: new Map()};
+      const [sv, pa, at, ms, cfg] = await Promise.all([all('servicos', 'ordem'), all('pacientes', 'id'), all('atendimentos', 'id'), all('mensagens', 'enviado_em'), all('config', 'chave')]);
+      const tpl = ((cfg.find(c => c.chave === 'modelos_msg') || {}).valor) || {};
+      const db = fromRows(sv, pa, at, ms, tpl); snapTpl = JSON.stringify(tpl);
+      snap = {servicos: new Map(), pacientes: new Map(), atendimentos: new Map(), mensagens: new Map()};
       if (!db.services.length) db.services = seedServices.map(s => ({...s}));
       // o que veio do servidor já está salvo; o catálogo inicial (banco vazio) ainda precisa subir
       const rows = toRows(db);
