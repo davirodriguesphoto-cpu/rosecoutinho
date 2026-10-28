@@ -4,18 +4,22 @@
 
 const N = v => (v === '' || v === undefined ? null : v);
 const CHUNK = 400;
+const P2 = n => String(n).padStart(2, '0');
+/* agenda: o app usa hora local 'AAAA-MM-DDTHH:MM'; o banco guarda timestamptz */
+const localIso = ts => { const d = new Date(ts); return `${d.getFullYear()}-${P2(d.getMonth() + 1)}-${P2(d.getDate())}T${P2(d.getHours())}:${P2(d.getMinutes())}`; };
 
 export function toRows(db){
-  const known = new Set(db.services.map(s => s.id));
+  const known = new Set(db.services.map(s => s.id)), pats = new Set(db.patients.map(p => p.id));
   return {
     servicos: db.services.map((s, i) => ({id: s.id, categoria: s.cat, nome: s.nome, preco_pix: N(s.pix), preco_cartao: N(s.card), duracao_min: N(s.dur), retorno_dias: N(s.ret), pacotes: s.pacotes || [], ordem: i})),
     pacientes: db.patients.map(p => ({id: p.id, nome: p.nome, telefone: N(p.tel), nascimento: N(p.nasc), instagram: N(p.insta), origem: N(p.origem), observacoes: N(p.obs), consentimento_ok: !!(p.lgpd && p.lgpd.ok), consentimento_em: N(p.lgpd && p.lgpd.data), avaliacao: p.aval || {}, anamnese: p.anam || {}, ciclo: p.ciclo || {}})),
     atendimentos: db.patients.flatMap(p => p.atend.map(a => ({id: a.id, paciente_id: p.id, data: a.data, servico_id: known.has(a.servicoId) ? a.servicoId : null, regiao: N(a.regiao), produto: N(a.produto), lote: N(a.lote), sessao: N(a.sessao), valor: N(a.valor), evolucao: N(a.evolucao), retorno_em: N(a.retorno)}))),
+    agendamentos: (db.agenda || []).map(a => ({id: a.id, paciente_id: pats.has(a.pid) ? a.pid : null, servico_id: known.has(a.sid) ? a.sid : null, inicio: new Date(a.ini).toISOString(), fim: new Date(new Date(a.ini).getTime() + (a.dur || 30) * 60000).toISOString(), status: a.status, observacoes: N(a.obs), google_event_id: N(a.gid), remarcacoes: a.rem || []})),
     mensagens: (db.msgs || []).map(m => ({id: m.id, paciente_id: m.pid, tipo: m.tipo, chave: N(m.chave), texto: N(m.texto), enviado_em: m.em})),
   };
 }
 
-export function fromRows(sv, pa, at, ms = [], tpl = {}){
+export function fromRows(sv, pa, at, ms = [], tpl = {}, ag = []){
   const byP = new Map();
   at.forEach(a => { if (!byP.has(a.paciente_id)) byP.set(a.paciente_id, []); byP.get(a.paciente_id).push({id: a.id, data: a.data, servicoId: a.servico_id || '', regiao: a.regiao || '', produto: a.produto || '', lote: a.lote || '', sessao: a.sessao || '', valor: a.valor ?? '', evolucao: a.evolucao || '', retorno: a.retorno_em || ''}); });
   return {
@@ -24,6 +28,7 @@ export function fromRows(sv, pa, at, ms = [], tpl = {}){
     patients: pa.map(p => ({id: p.id, nome: p.nome, tel: p.telefone || '', nasc: p.nascimento || '', insta: p.instagram || '', origem: p.origem || '', obs: p.observacoes || '', lgpd: {ok: !!p.consentimento_ok, data: p.consentimento_em || ''}, aval: p.avaliacao || {}, anam: p.anamnese || {}, ...(p.ciclo && Object.keys(p.ciclo).length ? {ciclo: p.ciclo} : {}), atend: byP.get(p.id) || []})),
     msgs: ms.map(m => ({id: m.id, pid: m.paciente_id, tipo: m.tipo, chave: m.chave || '', texto: m.texto || '', em: m.enviado_em})),
     tpl,
+    agenda: ag.map(a => ({id: a.id, pid: a.paciente_id || '', sid: a.servico_id || '', ini: localIso(a.inicio), dur: Math.round((new Date(a.fim) - new Date(a.inicio)) / 60000), status: a.status, obs: a.observacoes || '', gid: a.google_event_id || '', rem: a.remarcacoes || []})),
   };
 }
 
@@ -55,10 +60,10 @@ export function createCloud(sb, {retryMs = 6000, debounceMs = 700} = {}){
     for (const t of Object.keys(rows)) {
       plan[t] = {up: rows[t].filter(r => snap[t].get(r.id) !== now[t].get(r.id)), del: [...snap[t].keys()].filter(id => !now[t].has(id))};
     }
-    for (const t of ['servicos', 'pacientes', 'atendimentos', 'mensagens']) {
+    for (const t of ['servicos', 'pacientes', 'atendimentos', 'agendamentos', 'mensagens']) {
       if (plan[t].up.length) { await upsert(t, plan[t].up); plan[t].up.forEach(r => snap[t].set(r.id, now[t].get(r.id))); }
     }
-    for (const t of ['mensagens', 'atendimentos', 'pacientes', 'servicos']) {
+    for (const t of ['mensagens', 'agendamentos', 'atendimentos', 'pacientes', 'servicos']) {
       if (plan[t].del.length) { await remove(t, plan[t].del); plan[t].del.forEach(id => snap[t].delete(id)); }
     }
     const tj = JSON.stringify(db.tpl || {});
@@ -99,10 +104,10 @@ export function createCloud(sb, {retryMs = 6000, debounceMs = 700} = {}){
     async factorId(){ const {data, error} = await sb.auth.mfa.listFactors(); if (error) throw error; const f = ((data && data.totp) || [])[0]; if (!f) throw new Error('sem fator verificado'); return f.id; },
     onSignOut(cb){ sb.auth.onAuthStateChange(ev => { if (ev === 'SIGNED_OUT') cb(); }); },
     async load(seedServices){
-      const [sv, pa, at, ms, cfg] = await Promise.all([all('servicos', 'ordem'), all('pacientes', 'id'), all('atendimentos', 'id'), all('mensagens', 'enviado_em'), all('config', 'chave')]);
+      const [sv, pa, at, ms, cfg, ag] = await Promise.all([all('servicos', 'ordem'), all('pacientes', 'id'), all('atendimentos', 'id'), all('mensagens', 'enviado_em'), all('config', 'chave'), all('agendamentos', 'inicio')]);
       const tpl = ((cfg.find(c => c.chave === 'modelos_msg') || {}).valor) || {};
-      const db = fromRows(sv, pa, at, ms, tpl); snapTpl = JSON.stringify(tpl);
-      snap = {servicos: new Map(), pacientes: new Map(), atendimentos: new Map(), mensagens: new Map()};
+      const db = fromRows(sv, pa, at, ms, tpl, ag); snapTpl = JSON.stringify(tpl);
+      snap = {servicos: new Map(), pacientes: new Map(), atendimentos: new Map(), mensagens: new Map(), agendamentos: new Map()};
       if (!db.services.length) db.services = seedServices.map(s => ({...s}));
       // o que veio do servidor já está salvo; o catálogo inicial (banco vazio) ainda precisa subir
       const rows = toRows(db);

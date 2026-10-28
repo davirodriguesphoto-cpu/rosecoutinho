@@ -41,9 +41,10 @@ function seed(){
       atend.push({id: uid(), data, servicoId: s.id, regiao: '', produto: '', lote: '', sessao: '', valor: s.pix ?? '', evolucao: '', retorno: addDays(data, s.ret)});
       d -= Math.round(14 + rnd() * 30 + (s.ret > 60 ? 40 : 0)); }
     return mk(i, atend); });
-  return {v: 1, services: SERVICES.map(x => ({...x})), patients, msgs: [], tpl: {}};
+  const agenda = [[0, 1, '10:00'], [1, 1, '14:30'], [2, 2, '09:00']].map(([i, d, h]) => ({id: uid(), pid: patients[i].id, sid: leves[i].id, ini: addDays(t, d) + 'T' + h, dur: leves[i].dur || 60, status: 'agendado', obs: '', gid: '', rem: []}));
+  return {v: 1, services: SERVICES.map(x => ({...x})), patients, msgs: [], tpl: {}, agenda};
 }
-let db = {v: 1, services: [], patients: [], msgs: [], tpl: {}};
+let db = {v: 1, services: [], patients: [], msgs: [], tpl: {}, agenda: []};
 
 /* ---------- interface base ---------- */
 function toast(msg){ const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 2200); }
@@ -66,13 +67,14 @@ let ptab = 'dados';
 function route(){
   const h = location.hash.slice(1) || 'inicio';
   const m = h.match(/^paciente-([\w-]+)$/);
-  const tab = m ? 'pacientes' : (['inicio','pacientes','servicos','lembretes'].includes(h) ? h : 'inicio');
+  const tab = m ? 'pacientes' : (['inicio','agenda','pacientes','servicos','lembretes'].includes(h) ? h : 'inicio');
   $$('.tabs a').forEach(a => a.dataset.tab === tab ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'));
   const app = $('#app');
   if (m) { const p = db.patients.find(x => x.id === m[1]); p ? viewPaciente(app, p) : (location.hash = '#pacientes'); }
   else if (tab === 'pacientes') viewPacientes(app);
   else if (tab === 'servicos') viewServicos(app);
   else if (tab === 'lembretes') viewLembretes(app);
+  else if (tab === 'agenda') viewAgenda(app);
   else viewInicio(app);
 }
 window.addEventListener('hashchange', () => { ptab = 'dados'; closeSheet(); route(); window.scrollTo(0, 0); });
@@ -84,7 +86,7 @@ const TPL_PADRAO = {
   aniversario: 'Oi, {nome}! Passando para te desejar um feliz aniversário! Que o seu novo ciclo seja lindo e cheio de saúde. Um beijo da Rose Coutinho.',
   manutencao: 'Oi, {nome}! Está chegando a hora do seu retorno ({servico}). Quer que eu veja um horário pra você?',
   sumida: 'Oi, {nome}! Tudo bem? Faz um tempinho que não te vejo por aqui na Rose Coutinho. Como você está? Posso ver um horário pra você essa semana?',
-  procedimento: 'Oi, {nome}! Passando para lembrar do seu horário amanhã, {data}: {servico}. Posso confirmar?',
+  procedimento: 'Oi, {nome}! Passando para lembrar do seu horário amanhã, {data} às {hora}: {servico}. Posso confirmar?',
   pagamento: 'Oi, {nome}! Lembrando que o vencimento do seu pagamento é {data}. Qualquer dúvida é só me chamar.',
   fim_plano: 'Oi, {nome}! Seu plano ({servico}) termina em {data}. Vamos conversar sobre a continuidade do seu tratamento?',
 };
@@ -93,11 +95,11 @@ const monthAdd = (key, n) => { const [y, m] = key.split('-').map(Number); const 
 const money0 = n => 'R$ ' + Math.round(n).toLocaleString('pt-BR');
 const short = n => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace('.', ',') + 'k' : String(Math.round(n));
 const firstName = n => n.trim().split(/\s+/)[0];
-const msgText = (p, tpl, servico, data) => tpl.replace('{nome}', firstName(p.nome)).replace('{servico}', servico || 'procedimento').replace('{data}', data ? fmtD(data).slice(0, 5) : '');
-function waLink(p, tpl, servico, data){
+const msgText = (p, tpl, servico, data, hora) => tpl.replace('{nome}', firstName(p.nome)).replace('{servico}', servico || 'procedimento').replace('{data}', data ? fmtD(data).slice(0, 5) : '').replace('{hora}', hora || '');
+function waLink(p, tpl, servico, data, hora){
   const d = (p.tel || '').replace(/\D/g, ''); if (d.length < 10) return '';
   const num = d.length >= 12 && d.startsWith('55') ? d : '55' + d;
-  return 'https://wa.me/' + num + '?text=' + encodeURIComponent(msgText(p, tpl, servico, data));
+  return 'https://wa.me/' + num + '?text=' + encodeURIComponent(msgText(p, tpl, servico, data, hora));
 }
 function lastAtend(p){ return [...p.atend].sort((a, b) => b.data.localeCompare(a.data))[0]; }
 
@@ -164,7 +166,7 @@ function viewInicio(app){
       <li><span class="tag bad">Piorou</span><span>${pior ? esc(fmtK(pior)) : 'Nada abaixo do mês anterior até agora.'}</span></li>
       <li><span class="tag act">Exige ação</span><span>${acoes.length ? esc(acoes.join(' e ')) : 'Nenhuma pendência de retorno ou reativação.'}</span></li></ul></div></section>
     <p class="src">Fonte: atendimentos registrados no app. A receita soma só atendimentos com valor informado. Comparação: dias 1 a ${dia} deste mês contra dias 1 a ${dia} do mês anterior. Paciente novo: primeira visita registrada no app. Sumido: última visita entre ${SUMIDA_DIAS} dias e 1 ano.</p>`;
-  const rm = $('#rm-demo'); if (rm) rm.onclick = () => { db.patients = db.patients.filter(p => !p.demo); db.msgs = db.msgs.filter(m => db.patients.some(p => p.id === m.pid)); save(); route(); toast('Exemplos removidos'); };
+  const rm = $('#rm-demo'); if (rm) rm.onclick = () => { db.patients = db.patients.filter(p => !p.demo); db.msgs = db.msgs.filter(m => db.patients.some(p => p.id === m.pid)); db.agenda = db.agenda.filter(a => db.patients.some(p => p.id === a.pid)); save(); route(); toast('Exemplos removidos'); };
 }
 
 /* ---------- pacientes ---------- */
@@ -230,10 +232,11 @@ const ANAM = [['gestante', 'Gestante ou lactante'], ['alergia', 'Alergias (medic
 function viewPaciente(app, p){
   app.innerHTML = `
     <div><a href="#pacientes" class="sub" style="text-decoration:none">&larr; Pacientes</a></div>
-    <div class="head"><div style="display:flex;gap:12px;align-items:center;min-width:0"><div class="avatar" style="width:48px;height:48px;font-size:17px">${esc(initials(p.nome))}</div><div style="min-width:0"><h1 style="font-size:20px;overflow-wrap:anywhere">${esc(p.nome)}</h1><p class="sub">${[age(p.nasc), p.tel].filter(Boolean).map(esc).join(' · ')}</p></div></div></div>
+    <div class="head"><div style="display:flex;gap:12px;align-items:center;min-width:0"><div class="avatar" style="width:48px;height:48px;font-size:17px">${esc(initials(p.nome))}</div><div style="min-width:0"><h1 style="font-size:20px;overflow-wrap:anywhere">${esc(p.nome)}</h1><p class="sub">${[age(p.nasc), p.tel].filter(Boolean).map(esc).join(' · ')}</p></div></div><button class="btn small" id="p-ag" type="button">Agendar</button></div>
     <div class="chips" role="tablist">${TABS.map(([k, l]) => `<button class="chip" role="tab" data-t="${k}" aria-selected="${k === ptab}" type="button">${l}${k === 'atend' ? ' (' + p.atend.length + ')' : ''}</button>`).join('')}</div>
     <div id="pbody"></div>`;
   $$('.chip', app).forEach(c => c.onclick = () => { ptab = c.dataset.t; viewPaciente(app, p); });
+  $('#p-ag').onclick = () => agNovo(p.id);
   const b = $('#pbody');
   ({dados: tabDados, aval: tabAval, anam: tabAnam, atend: tabAtend, ciclo: tabCiclo})[ptab](b, p);
 }
@@ -247,7 +250,7 @@ function tabDados(b, p){
   $('#d-ok').onclick = () => { const nome = val('d-nome'); if (!nome) return toast('Informe o nome');
     const ok = $('#d-lgpd').checked; Object.assign(p, {nome, tel: val('d-tel'), nasc: val('d-nasc'), insta: val('d-insta'), origem: val('d-origem'), obs: val('d-obs')});
     p.lgpd = {ok, data: ok ? ((p.lgpd && p.lgpd.ok && p.lgpd.data) || today()) : ''}; save(); route(); toast('Salvo'); };
-  arm($('#d-del'), () => { db.patients = db.patients.filter(x => x.id !== p.id); db.msgs = db.msgs.filter(m => m.pid !== p.id); save(); location.hash = '#pacientes'; });
+  arm($('#d-del'), () => { db.patients = db.patients.filter(x => x.id !== p.id); db.msgs = db.msgs.filter(m => m.pid !== p.id); db.agenda = db.agenda.filter(a => a.pid !== p.id); save(); location.hash = '#pacientes'; });
 }
 function tabAval(b, p){
   const a = p.aval || {}, peso = parseFloat(String(a.peso || '').replace(',', '.')), alt = parseFloat(String(a.altura || '').replace(',', '.'));
@@ -348,30 +351,109 @@ function lembretesData(){
   db.patients.filter(p => p.atend.length).forEach(p => { const l = lastAtend(p), s = svc(l.servicoId);
     if (diffDays(t, l.data) < SUMIDA_DIAS && l.retorno && l.retorno <= addDays(t, 3))
       add(p, 'manutencao', 'manutencao:' + l.id, (s ? s.nome : 'Retorno') + (l.retorno < t ? ' · venceu há ' + diffDays(t, l.retorno) + ' dias' : l.retorno === t ? ' · é hoje' : ' · em ' + fmtD(l.retorno).slice(0, 5)), {servico: s && s.nome, data: l.retorno, aviso: cicloAviso(p, l.retorno)}); });
+  db.agenda.filter(a => (a.status === 'agendado' || a.status === 'confirmado') && agDia(a.ini) === addDays(t, 1)).forEach(a => { const p = pacDe(a.pid), s = svc(a.sid); if (!p) return;
+    add(p, 'procedimento', 'procedimento:' + a.id + ':' + a.ini, (s ? s.nome : 'Horário') + ' · amanhã às ' + agHora(a.ini), {servico: s && s.nome, data: agDia(a.ini), hora: agHora(a.ini)}); });
   D.sumidos.forEach(x => add(x.p, 'sumida', 'sumida:' + t.slice(0, 7), 'última visita há ' + x.dias + ' dias'));
   return out.sort((a, b) => a.sent - b.sent || MSG_ORDEM.indexOf(a.tipo) - MSG_ORDEM.indexOf(b.tipo));
 }
 function viewLembretes(app){
   const L = lembretesData(), pend = L.filter(x => !x.sent), feitos = L.filter(x => x.sent).length;
   const nomeDe = id => (db.patients.find(p => p.id === id) || {nome: 'Paciente removida'}).nome;
-  const linha = (x, i) => { const link = waLink(x.p, tplOf(x.tipo), x.servico, x.data);
+  const linha = (x, i) => { const link = waLink(x.p, tplOf(x.tipo), x.servico, x.data, x.hora);
     return `<div class="item static"><a class="avatar" href="#paciente-${x.p.id}" aria-label="Abrir ficha de ${esc(x.p.nome)}" style="text-decoration:none">${esc(initials(x.p.nome))}</a><div class="grow"><a class="t" href="#paciente-${x.p.id}" style="color:inherit;text-decoration:none">${esc(x.p.nome)}</a><div class="m"><b>${TIPO_NOME[x.tipo]}</b> · ${esc(x.det)}</div>${x.aviso ? `<div class="m" style="color:var(--warn)">${esc(x.aviso)}</div>` : ''}</div>${link ? `<a class="btn small" data-send="${i}" href="${link}" target="_blank" rel="noopener">WhatsApp</a>` : '<span class="pill">sem telefone</span>'}</div>`; };
   const recentes = [...db.msgs].sort((a, b) => b.em.localeCompare(a.em)).slice(0, 8);
   app.innerHTML = `<div class="head"><div><h1>Lembretes</h1><p class="sub">${pend.length ? pend.length + ' para enviar hoje' : 'Nada para enviar agora'}${feitos ? ' · ' + feitos + ' já enviado' + (feitos > 1 ? 's' : '') : ''}</p></div><div class="actions"><button class="btn ghost small" id="l-tpl" type="button">Editar mensagens</button></div></div>
     <section><div class="list">${pend.length ? pend.map(linha).join('') : '<div class="empty">Tudo em dia.</div>'}</div></section>
     <section><h2>Enviados recentemente</h2><div class="list">${recentes.length ? recentes.map(m => `<div class="item static"><div class="grow"><span class="t">${esc(nomeDe(m.pid))}</span><div class="m">${TIPO_NOME[m.tipo] || 'Mensagem'} · ${new Date(m.em).toLocaleDateString('pt-BR')}</div></div></div>`).join('') : '<div class="empty">Nenhum envio registrado.</div>'}</div></section>
-    <p class="src">O botão abre o WhatsApp com a mensagem pronta; quem envia é a Rose. Ao tocar, o envio fica registrado e o lembrete sai da lista. Aniversário no dia; manutenção até 3 dias antes do retorno; sumida a partir de ${SUMIDA_DIAS} dias sem vir. Procedimento, pagamento e fim de plano entram com a agenda e os pacotes.</p>`;
+    <p class="src">O botão abre o WhatsApp com a mensagem pronta; quem envia é a Rose. Ao tocar, o envio fica registrado e o lembrete sai da lista. Aniversário no dia; manutenção até 3 dias antes do retorno; sumida a partir de ${SUMIDA_DIAS} dias sem vir. Procedimento: 1 dia antes do horário. Pagamento e fim de plano entram com os pacotes.</p>`;
   $$('a[data-send]', app).forEach(a => a.onclick = () => { const x = pend[+a.dataset.send];
-    registrarEnvio(x.p.id, x.tipo, x.chave, msgText(x.p, tplOf(x.tipo), x.servico, x.data)); setTimeout(route, 400); });
+    registrarEnvio(x.p.id, x.tipo, x.chave, msgText(x.p, tplOf(x.tipo), x.servico, x.data, x.hora)); setTimeout(route, 400); });
   $('#l-tpl').onclick = tplForm;
 }
 function registrarEnvio(pid, tipo, chave, texto){ db.msgs.push({id: uid(), pid, tipo, chave, texto, em: new Date().toISOString()}); save(); }
 function tplForm(){
-  openSheet('Mensagens do WhatsApp', `<div class="form"><p class="sub" style="margin:0">Use {nome}, {servico} e {data}. Procedimento, pagamento e fim de plano ficam prontos para quando essas telas entrarem.</p>
+  openSheet('Mensagens do WhatsApp', `<div class="form"><p class="sub" style="margin:0">Use {nome}, {servico}, {data} e {hora}. Pagamento e fim de plano ficam prontos para quando os pacotes entrarem.</p>
     ${MSG_ORDEM.map(k => area('t-' + k, TIPO_NOME[k], tplOf(k))).join('')}
     <div class="actions"><button class="btn" id="t-ok" type="button">Salvar</button><button class="btn ghost" id="t-rst" type="button">Voltar ao padrão</button></div></div>`);
   $('#t-ok').onclick = () => { const tpl = {}; MSG_ORDEM.forEach(k => { const v = val('t-' + k); if (v && v !== TPL_PADRAO[k]) tpl[k] = v; }); db.tpl = tpl; save(); closeSheet(); route(); toast('Mensagens salvas'); };
   $('#t-rst').onclick = () => { db.tpl = {}; save(); closeSheet(); route(); toast('Mensagens padrão'); };
+}
+
+/* ---------- agenda interna (a ligação com o Google entra depois, sem refazer) ---------- */
+const STATUS_AG = {agendado: 'Agendado', confirmado: 'Confirmado', realizado: 'Realizado', faltou: 'Faltou', cancelado: 'Cancelado'};
+const MOTIVOS = [['paciente', 'Pedido da paciente'], ['periodo', 'Período menstrual'], ['clinica', 'Imprevisto da clínica'], ['outro', 'Outro']];
+let agVer = 'prox';
+const agDia = s => s.slice(0, 10), agHora = s => s.slice(11, 16);
+const agMs = s => new Date(s).getTime(), agFim = a => agMs(a.ini) + (a.dur || 30) * 60000;
+const pacDe = id => db.patients.find(p => p.id === id);
+const nomeDia = d => { const t = today(); return d === t ? 'Hoje' : d === addDays(t, 1) ? 'Amanhã' : parse(d).toLocaleDateString('pt-BR', {weekday: 'long', day: 'numeric', month: 'long'}); };
+function agConflito(ini, dur, ignorar){ const fim = agMs(ini) + dur * 60000; return db.agenda.find(a => a.id !== ignorar && a.status !== 'cancelado' && agMs(a.ini) < fim && agFim(a) > agMs(ini)); }
+/* avisos ao escolher data e hora: choque de horário e possível período menstrual */
+function agAvisos(p, dia, hora, dur, ignorar){
+  const out = [], c = dia && hora ? agConflito(dia + 'T' + hora, dur, ignorar) : null;
+  if (c) out.push('Já existe agendamento nesse horário (' + (pacDe(c.pid) || {nome: 'paciente removida'}).nome + ', ' + agHora(c.ini) + ').');
+  const ciclo = p ? cicloAviso(p, dia) : ''; if (ciclo) out.push(ciclo);
+  return out.join(' ');
+}
+function viewAgenda(app){
+  const t = today(), todas = [...db.agenda].sort((a, b) => a.ini.localeCompare(b.ini));
+  const rows = agVer === 'prox' ? todas.filter(a => agDia(a.ini) >= t) : todas.filter(a => agDia(a.ini) < t).reverse().slice(0, 40);
+  const grupos = []; rows.forEach(a => { const d = agDia(a.ini); let g = grupos[grupos.length - 1]; if (!g || g.d !== d) grupos.push(g = {d, rows: []}); g.rows.push(a); });
+  const linha = a => { const p = pacDe(a.pid), s = svc(a.sid), rem = (a.rem || []).length;
+    return `<button class="item" data-ag="${a.id}" type="button"><div class="avatar" style="width:auto;min-width:54px;border-radius:12px;padding:0 8px;font-size:13px">${agHora(a.ini)}</div><div class="grow"><span class="t">${esc(p ? p.nome : 'Paciente removida')}</span><div class="m">${esc(s ? s.nome : 'Sem serviço')}${rem ? ' · remarcado' + (rem > 1 ? ' ' + rem + 'x' : '') : ''}</div></div><span class="pill ${a.status === 'faltou' || a.status === 'cancelado' ? 'late' : a.status === 'agendado' ? 'soon' : ''}">${STATUS_AG[a.status]}</span></button>`; };
+  app.innerHTML = `<div class="head"><div><h1>Agenda</h1><p class="sub">${agVer === 'prox' ? rows.length + ' agendamento' + (rows.length === 1 ? '' : 's') + ' pela frente' : 'Últimos agendamentos'}</p></div><div class="actions"><button class="btn small" id="ag-novo" type="button">Novo agendamento</button></div></div>
+    <div class="seg" style="align-self:flex-start"><button type="button" data-v="prox" aria-pressed="${agVer === 'prox'}">Próximos</button><button type="button" data-v="pass" aria-pressed="${agVer === 'pass'}">Passados</button></div>
+    ${grupos.length ? grupos.map(g => `<section><h2>${esc(nomeDia(g.d))}</h2><div class="list">${g.rows.map(linha).join('')}</div></section>`).join('') : '<div class="list"><div class="empty">Nada por aqui.</div></div>'}
+    <p class="src">Agenda interna do painel. A ligação com o Google Agenda entra depois e usa estes mesmos agendamentos.</p>`;
+  $$('.seg button', app).forEach(b => b.onclick = () => { agVer = b.dataset.v; viewAgenda(app); });
+  $$('[data-ag]', app).forEach(b => b.onclick = () => agDetalhe(db.agenda.find(a => a.id === b.dataset.ag)));
+  $('#ag-novo').onclick = () => agNovo();
+}
+function agNovo(pid){
+  const p0 = pid ? pacDe(pid) : null, lista = [...db.patients].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  const optsP = q => lista.filter(p => !q || p.nome.toLowerCase().includes(q.toLowerCase())).slice(0, 60).map(p => `<option value="${p.id}">${esc(p.nome)}</option>`).join('');
+  const optsS = CATS.map(c => `<optgroup label="${esc(c)}">${db.services.filter(s => s.cat === c).map(s => `<option value="${s.id}">${esc(s.nome)}</option>`).join('')}</optgroup>`).join('');
+  openSheet('Novo agendamento', `<div class="form">
+    ${p0 ? `<p class="t" style="margin:0;font-weight:700">${esc(p0.nome)}</p>` : `${field('a-q', 'Buscar paciente', '', 'search')}<div class="f"><label for="a-pac">Paciente</label><select id="a-pac">${optsP('')}</select></div>`}
+    <div class="f"><label for="a-svc">Serviço</label><select id="a-svc"><option value="">Escolha um serviço</option>${optsS}</select></div>
+    <div class="two">${field('a-dia', 'Data', today(), 'date')}${field('a-hora', 'Hora', '09:00', 'time')}</div>
+    ${field('a-dur', 'Duração (min)', 60, 'number', 'inputmode="numeric" min="5" step="5"')}${area('a-obs', 'Observações')}
+    <p class="sub" id="a-aviso" role="status" style="margin:0;color:var(--warn)"></p>
+    <div class="actions"><button class="btn" id="a-ok" type="button">Agendar</button></div></div>`);
+  const cur = () => p0 || pacDe(val('a-pac')), aviso = () => { $('#a-aviso').textContent = agAvisos(cur(), val('a-dia'), val('a-hora'), +val('a-dur') || 30); };
+  if (!p0) $('#a-q').oninput = () => { $('#a-pac').innerHTML = optsP(val('a-q')); aviso(); };
+  ['a-pac', 'a-dia', 'a-hora', 'a-dur'].forEach(id => { const e = $('#' + id); if (e) e.addEventListener('input', aviso); });
+  $('#a-svc').onchange = () => { const s = svc(val('a-svc')); if (s && s.dur) $('#a-dur').value = s.dur; aviso(); };
+  $('#a-ok').onclick = () => { const p = cur(); if (!p) return toast('Escolha a paciente'); if (!val('a-dia') || !val('a-hora')) return toast('Informe data e hora');
+    db.agenda.push({id: uid(), pid: p.id, sid: val('a-svc'), ini: val('a-dia') + 'T' + val('a-hora'), dur: +val('a-dur') || 30, status: 'agendado', obs: val('a-obs'), gid: '', rem: []});
+    save(); closeSheet(); route(); toast('Agendado'); };
+  aviso();
+}
+function agDetalhe(a){
+  if (!a) return;
+  const p = pacDe(a.pid), s = svc(a.sid), hist = a.rem || [];
+  openSheet('Agendamento', `<div class="form">
+    <div><p class="t" style="margin:0;font-weight:700">${esc(p ? p.nome : 'Paciente removida')}</p><p class="sub" style="margin:2px 0 0">${esc(s ? s.nome : 'Sem serviço')} · ${fmtD(agDia(a.ini))} às ${agHora(a.ini)} · ${a.dur} min</p></div>
+    <div class="chips" role="group" aria-label="Situação">${Object.entries(STATUS_AG).map(([k, l]) => `<button class="chip" data-st="${k}" aria-selected="${a.status === k}" type="button">${l}</button>`).join('')}</div>
+    ${area('g-obs', 'Observações', a.obs)}
+    <h2 style="margin:6px 0 0">Remarcar</h2>
+    <div class="two">${field('g-dia', 'Nova data', agDia(a.ini), 'date')}${field('g-hora', 'Hora', agHora(a.ini), 'time')}</div>
+    ${select('g-mot', 'Motivo', MOTIVOS, 'paciente')}
+    <div id="g-per" hidden>${field('g-ini', 'Início da menstruação (ficha de ciclo)', today(), 'date')}<p class="sub" id="g-cic" style="margin:0"></p></div>
+    <p class="sub" id="g-aviso" role="status" style="margin:0;color:var(--warn)"></p>
+    ${hist.length ? `<p class="src" style="margin:0">Remarcações: ${hist.map(r => esc(fmtD(agDia(r.de)) + ' ' + agHora(r.de) + ' (' + ((MOTIVOS.find(m => m[0] === r.motivo) || [0, 'outro'])[1]).toLowerCase() + ')')).join('; ')}</p>` : ''}
+    <div class="actions"><button class="btn" id="g-rem" type="button">Remarcar</button><button class="btn ghost" id="g-save" type="button">Salvar</button><button class="btn danger" id="g-del" type="button">Excluir</button></div></div>`);
+  $$('[data-st]').forEach(b => b.onclick = () => { a.status = b.dataset.st; a.obs = val('g-obs'); save(); closeSheet(); route(); toast(STATUS_AG[a.status]); });
+  const aviso = () => { const novo = val('g-dia') + 'T' + val('g-hora'); $('#g-aviso').textContent = novo === a.ini ? '' : agAvisos(p, val('g-dia'), val('g-hora'), a.dur, a.id); };
+  const motivo = () => { const per = val('g-mot') === 'periodo'; $('#g-per').hidden = !per;
+    if (per && p) { const C = cicloCalc(p); $('#g-cic').textContent = C.ativo ? 'Previsão do ciclo já ativa (média de ' + C.media + ' dias). Esta data entra no histórico.' : 'Esta data entra no histórico do ciclo (' + C.medidos + ' de ' + CICLOS_MIN + ' ciclos medidos até agora).'; } };
+  ['g-dia', 'g-hora'].forEach(id => $('#' + id).addEventListener('input', aviso)); $('#g-mot').onchange = motivo; motivo();
+  $('#g-save').onclick = () => { a.obs = val('g-obs'); save(); closeSheet(); route(); toast('Salvo'); };
+  $('#g-rem').onclick = () => { const dia = val('g-dia'), hora = val('g-hora'), novo = dia + 'T' + hora; if (!dia || !hora) return toast('Informe data e hora'); if (novo === a.ini) return toast('Escolha outra data ou hora');
+    const mot = val('g-mot'); a.rem = [...(a.rem || []), {de: a.ini, motivo: mot, em: new Date().toISOString().slice(0, 16)}];
+    if (mot === 'periodo' && p) { const d = val('g-ini'); const ini = (p.ciclo && p.ciclo.inicios) || []; if (d && !ini.includes(d)) p.ciclo = {inicios: [...ini, d].sort()}; }
+    a.ini = novo; a.status = 'agendado'; a.obs = val('g-obs'); save(); closeSheet(); route(); toast('Remarcado'); };
+  arm($('#g-del'), () => { db.agenda = db.agenda.filter(x => x.id !== a.id); save(); closeSheet(); route(); });
 }
 
 /* ---------- serviços ---------- */
@@ -488,7 +570,7 @@ function viewConfig(){
   $('#app').innerHTML = '<div class="login card form"><h1 style="font-size:20px">Configuração pendente</h1><p style="margin:0">Faltam as variáveis do Supabase neste ambiente. Por segurança, o app não abre sem login. Veja o README, passo 3.</p></div>';
 }
 async function boot(){
-  if (!cloud) { if (!demoOk) return viewConfig(); db = localLoad() || seed(); db.msgs = db.msgs || []; db.tpl = db.tpl || {}; chrome(true); route(); return; }
+  if (!cloud) { if (!demoOk) return viewConfig(); db = localLoad() || seed(); db.msgs = db.msgs || []; db.tpl = db.tpl || {}; db.agenda = db.agenda || []; chrome(true); route(); return; }
   cloud.onStatus(setSync); cloud.onSignOut(() => location.reload());
   $('#logout').onclick = async () => { await cloud.signOut(); location.reload(); };
   gate();

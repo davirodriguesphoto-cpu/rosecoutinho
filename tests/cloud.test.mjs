@@ -3,7 +3,7 @@ import { createCloud, toRows, fromRows } from '../src/lib/cloud-core.js';
 
 /* Supabase simulado em memória: guarda linhas por tabela e registra cada chamada. */
 function fakeSb(){
-  const t = {servicos: new Map(), pacientes: new Map(), atendimentos: new Map(), mensagens: new Map(), config: new Map()};
+  const t = {servicos: new Map(), pacientes: new Map(), atendimentos: new Map(), mensagens: new Map(), agendamentos: new Map(), config: new Map()};
   const calls = []; let failNext = 0, delayMs = 0;
   const wait = () => new Promise(r => setTimeout(r, delayMs));
   const from = name => ({
@@ -102,5 +102,14 @@ function fakeAuth(st){
   const back = await createCloud(sb, opts).load(seed);
   assert.deepEqual(back.msgs, db.msgs); assert.deepEqual(back.tpl, db.tpl); assert.deepEqual(back.patients[0].ciclo, {inicios: ['2026-09-01']});
   sb.calls.length = 0; db.msgs = []; c.queue(db); await sleep(60); assert.deepEqual(sb.calls, [['delete', 'mensagens', 1]]); ok('mensagens, modelos e ciclo sincronizam e apagam'); }
+
+/* 12. agenda: hora local ida e volta, remarcações e vínculo com o Google preservados */
+{ const sb = fakeSb(), c = createCloud(sb, opts); const db = await c.load(seed);
+  db.patients.push({id: 'p1', nome: 'Ana', tel: '', nasc: '', insta: '', origem: '', obs: '', lgpd: {ok: false, data: ''}, aval: {}, anam: {}, atend: []});
+  db.agenda = [{id: 'g1', pid: 'p1', sid: 'sv1', ini: '2026-10-30T14:30', dur: 45, status: 'agendado', obs: 'x', gid: 'ev123', rem: [{de: '2026-10-28T09:00', motivo: 'periodo', em: '2026-10-27T10:00'}]}];
+  c.queue(db); await sleep(60);
+  const back = await createCloud(sb, opts).load(seed); assert.deepEqual(back.agenda, db.agenda);
+  sb.calls.length = 0; db.patients = []; db.agenda = []; c.queue(db); await sleep(60);
+  assert.deepEqual(sb.calls, [['delete', 'agendamentos', 1], ['delete', 'pacientes', 1]]); ok('agenda sincroniza em hora local e sai antes do paciente'); }
 
 console.log(`\n${n} testes passaram`);
