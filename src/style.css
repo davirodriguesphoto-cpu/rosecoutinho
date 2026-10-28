@@ -184,7 +184,7 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center;justify-conten
   @keyframes vela{from{opacity:0}}
   .panel{animation:up .3s var(--ease)}
 }
-@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
 
 /* ===== vidro: mesma linguagem do WÓD'IO (cartões de 22px, botões e chips em pílula, barra flutuante), nas cores da marca ===== */
 :root{--glass:rgba(255,253,253,.62);--glass2:rgba(255,253,253,.84);--glassb:rgba(255,255,255,.8);--sep:rgba(150,73,90,.14);--field:rgba(255,255,255,.6);
@@ -468,4 +468,39 @@ h2{margin-bottom:12px}
 .fa small{flex:none}
 .fa b{text-align:right}
 @media (min-width:768px){.fa{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:28px}.fa>div:nth-child(2){border-top:0}}
+
+/* ===== movimento: entrada em cascata, toque e transicoes (so transform, opacidade e cor; nada de layout) ===== */
+@media (prefers-reduced-motion:no-preference){
+  #app.entra{animation:none}
+  #app.entra>*{animation:sobe .42s var(--ease) both}
+  #app.entra>:nth-child(2){animation-delay:.04s}#app.entra>:nth-child(3){animation-delay:.08s}
+  #app.entra>:nth-child(4){animation-delay:.12s}#app.entra>:nth-child(5){animation-delay:.16s}
+  #app.entra>:nth-child(n+6){animation-delay:.2s}
+  @keyframes sobe{from{opacity:0;transform:translateY(12px)}}
+  .hero-ag .big{animation:hora .7s var(--ease) .1s both}
+  @keyframes hora{from{opacity:0;transform:translateY(8px);filter:blur(6px)}}
+  .ag-det{animation:abre .32s var(--ease) both}
+  @keyframes abre{from{opacity:0;transform:translateY(-6px)}}
+  .cal{animation:abre .34s var(--ease) both}
+  .cd.sel,.dia[aria-pressed="true"]{animation:marca .26s var(--ease)}
+  @keyframes marca{from{transform:scale(.92)}}
+  #sheet .panel{animation:folha .38s var(--ease)}
+  @keyframes folha{from{transform:translateY(36px);opacity:.5}}
+  .item.ag.aberto .btn .ico{animation:gira .25s var(--ease)}
+  @keyframes gira{from{transform:rotate(-90deg)}}
+}
+.dia,.cd,.mais,.calbtn,.opt{transition:transform .16s var(--ease),background-color .22s,border-color .22s,color .22s,box-shadow .22s}
+.tabs a svg{transition:transform .22s var(--ease)}
+.tabs a[aria-current="page"] svg{transform:translateY(-1px) scale(1.06)}
+.tabs a{transition:background-color .25s,color .25s,transform .14s var(--ease)}
+.item.ag{transition:background-color .25s}
+.dia:active,.cd:active,.calbtn:active{transform:scale(.94)}
+@media (hover:hover){
+  .btn:not(:disabled):hover,.chip:hover,.opt:hover,.dia:hover,.calbtn:hover{transform:translateY(-1px)}
+  .btn:not(:disabled):hover{box-shadow:0 10px 22px -12px color-mix(in srgb,var(--btn) 70%,transparent)}
+  .btn:not(:disabled):active,.chip:active,.opt:active{transform:scale(.97)}
+  .mais:hover{transform:translateY(-2px) scale(1.04)}.mais:active{transform:scale(.94)}
+  .item:not(.static):hover{background:color-mix(in srgb,var(--tint) 40%,transparent)}
+  .tabs a:not([aria-current="page"]):hover{color:var(--link);background:color-mix(in srgb,var(--tint) 45%,transparent)}
+}
 
