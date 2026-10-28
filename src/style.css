@@ -347,3 +347,41 @@ details.como{padding:4px 2px}
 details.como>summary{cursor:pointer;color:var(--link);font-weight:700;font-size:13.5px;min-height:44px;display:flex;align-items:center}
 details.como>p{margin:0 0 6px}
 
+/* ===== tablet (768 a 1099): aproveita a largura em duas colunas, sem esticar o layout do celular ===== */
+.so-largo{display:none}
+.fi-lado,.fi-corpo{display:flex;flex-direction:column;gap:22px;min-width:0}
+.ag-col,.ag-side{display:flex;flex-direction:column;gap:22px;min-width:0}
+.chart svg{display:block;margin:0 auto;max-height:260px}
+@media (min-width:768px){
+  .wrap{max-width:900px}
+  .so-largo{display:block}
+  #app[data-v="agenda"]{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:22px 24px;align-items:start}
+  #app[data-v="agenda"]>.saud,#app[data-v="agenda"]>.note{grid-column:1/-1}
+  #app[data-v="financeiro"]{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px 24px;align-items:start}
+  #app[data-v="financeiro"]>:nth-child(-n+3),#app[data-v="financeiro"]>:last-child{grid-column:1/-1}
+  #app[data-v="lembretes"]{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px 24px;align-items:start}
+  #app[data-v="lembretes"]>.head,#app[data-v="lembretes"]>details{grid-column:1/-1}
+  #plist .list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+  #plist .item{border-top:1px solid var(--sep)}
+  #plist .item:nth-child(-n+2){border-top:0}
+  #plist .item:nth-child(odd){border-right:1px solid var(--sep)}
+  /* a folha vira janela no centro, em vez de subir do rodapé */
+  #sheet{align-items:center;padding:24px}
+  .panel{max-width:560px;max-height:calc(100% - 48px);border-radius:26px;border-bottom:1px solid var(--glassb)}
+}
+
+/* ===== desktop (1100 em diante): barra lateral fixa, colunas largas e ficha em duas colunas ===== */
+@media (min-width:1100px){
+  body{padding-left:124px;padding-right:32px;padding-block:0 40px}
+  .wrap{max-width:1140px}
+  .tabs{left:16px;top:16px;bottom:16px;width:88px;transform:none;padding:14px 8px;border-radius:30px;display:flex}
+  .tabs .wrap{display:flex;flex-direction:column;align-items:stretch;gap:6px;width:100%;max-width:none}
+  .tabs a{min-height:64px}
+  .mais{order:-1;margin:0 auto 12px}
+  #toast{bottom:28px}
+  #app[data-v="ficha"]{display:grid;grid-template-columns:300px minmax(0,1fr);gap:28px;align-items:start}
+  .fi-lado{position:sticky;top:84px}
+  #slist{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start}
+  #slist details.group+details.group{margin-top:0}
+}
+

@@ -74,7 +74,7 @@ function route(){
   const m = h.match(/^paciente-([\w-]+)$/);
   const tab = m ? 'pacientes' : (['agenda','pacientes','servicos','lembretes','financeiro'].includes(h) ? h : 'agenda');
   $$('[data-tab]').forEach(a => a.dataset.tab === tab ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'));
-  const app = $('#app');
+  const app = $('#app'); app.dataset.v = m ? 'ficha' : tab;
   if (m) { const p = db.patients.find(x => x.id === m[1]); p ? viewPaciente(app, p) : (location.hash = '#pacientes'); }
   else if (tab === 'pacientes') viewPacientes(app);
   else if (tab === 'servicos') viewServicos(app);
@@ -257,14 +257,14 @@ function viewPaciente(app, p){
   const prox = db.agenda.filter(a => a.pid === p.id && a.status !== 'cancelado' && a.ini >= agoraIso).sort((a, b) => a.ini.localeCompare(b.ini))[0];
   const ult = p.atend.length ? lastAtend(p) : null, us = ult && svc(ult.servicoId);
   const zap = waLink(p, '', {}), dd = d => DIAS_SEM[(parse(d).getDay() + 6) % 7] + ', ' + +d.slice(8) + ' ' + MES[+d.slice(5, 7) - 1];
-  app.innerHTML = `
+  app.innerHTML = `<div class="fi-lado">
     <div><a href="#pacientes" class="sub" style="text-decoration:none">&larr; Pacientes</a></div>
     <div class="head"><div style="display:flex;gap:12px;align-items:center;min-width:0"><div class="avatar" style="width:48px;height:48px;font-size:17px">${esc(initials(p.nome))}</div><div style="min-width:0"><h1 style="font-size:20px;overflow-wrap:anywhere">${esc(p.nome)}</h1><p class="sub">${[esc(age(p.nasc)), p.tel ? `<a href="${esc(telHref(p.tel))}">${esc(p.tel)}</a>` : ''].filter(Boolean).join(' · ')}</p></div></div>
       <div class="actions">${zap ? `<a class="btn ghost small" href="${zap}" target="_blank" rel="noopener">${ICO_BALAO}WhatsApp</a>` : ''}<button class="btn small" id="p-ag" type="button">Agendar</button></div></div>
     <p class="ctx"><span>Próximo: <b>${prox ? dd(agDia(prox.ini)) + ' · ' + agHora(prox.ini) : 'sem horário marcado'}</b></span><span>Último: <b>${ult ? esc((us ? us.nome : 'Atendimento') + ' · ' + fmtD(ult.data).slice(0, 5)) : 'nenhum atendimento'}</b></span></p>
-    <div class="chips" role="tablist" aria-label="Seções da ficha">${GRUPOS.map(g => `<button class="chip" role="tab" data-g="${g[0]}" aria-selected="${g === grupo}" type="button">${g[1]}</button>`).join('')}</div>
-    ${grupo[2].length > 1 ? `<div class="chips" role="tablist" aria-label="${esc(grupo[1])}">${grupo[2].map(k => `<button class="chip peq" role="tab" data-t="${k}" aria-selected="${k === ptab}" type="button">${rot(k)}${k === 'atend' ? ' (' + p.atend.length + ')' : ''}</button>`).join('')}</div>` : ''}
-    <div id="pbody"></div>`;
+    <div class="chips" role="tablist" aria-label="Seções da ficha">${GRUPOS.map(g => `<button class="chip" role="tab" data-g="${g[0]}" aria-selected="${g === grupo}" type="button">${g[1]}</button>`).join('')}</div></div>
+    <div class="fi-corpo">${grupo[2].length > 1 ? `<div class="chips" role="tablist" aria-label="${esc(grupo[1])}">${grupo[2].map(k => `<button class="chip peq" role="tab" data-t="${k}" aria-selected="${k === ptab}" type="button">${rot(k)}${k === 'atend' ? ' (' + p.atend.length + ')' : ''}</button>`).join('')}</div>` : ''}
+    <div id="pbody"></div></div>`;
   $$('[data-g]', app).forEach(c => c.onclick = () => { const g = GRUPOS.find(x => x[0] === c.dataset.g); if (!g[2].includes(ptab)) { ptab = g[2][0]; dadosEdit = false; } viewPaciente(app, p); });
   $$('[data-t]', app).forEach(c => c.onclick = () => { ptab = c.dataset.t; viewPaciente(app, p); });
   $('#p-ag').onclick = () => agNovo(p.id);
@@ -526,19 +526,24 @@ function viewAgenda(app){
     return `<div class="item ag${off ? ' apagado' : ''}${proximoHoje && proximoHoje.id === a.id ? ' proximo' : ''}"><button class="ag-main" data-ag="${a.id}" type="button"><div class="hr">${agHora(a.ini)}<small>até ${agFimHora(a)}</small></div><div class="grow"><span class="t">${esc(p ? p.nome : 'Paciente removida')}</span><div class="m">${esc(s ? s.nome : 'Sem serviço')}${rem ? ' · remarcado' + (rem > 1 ? ' ' + rem + 'x' : '') : ''}</div></div><span class="pill ${a.status === 'faltou' || a.status === 'cancelado' ? 'late' : a.status === 'agendado' ? 'soon' : ''}">${STATUS_AG[a.status]}</span></button>${acao ? `<div class="ag-acao">${acao}</div>` : ''}</div>`; };
   const vazio = `<div class="empty">Dia livre.<div class="actions" style="justify-content:center;margin-top:12px"><button class="btn small" id="ag-vazio" type="button">Agendar neste dia</button>${depois ? `<button class="btn ghost small" id="ag-depois" type="button">Próximo: ${esc(nomeDia(agDia(depois.ini)).toLowerCase())}</button>` : ''}</div></div>`;
   const nL = lembretesData().filter(x => !x.sent).length, dh = new Date();
+  const agoraIso = t + 'T' + agora, prox = db.agenda.filter(a => a.status !== 'cancelado' && a.ini >= agoraIso).sort((a, b) => a.ini.localeCompare(b.ini)).slice(0, 6);
+  const rotDia = d => d === t ? 'hoje' : d === amanha ? 'amanhã' : DIAS_SEM[(parse(d).getDay() + 6) % 7] + ', ' + +d.slice(8);
+  const proximosHtml = prox.length ? `<section class="so-largo"><h2>Próximos horários</h2><div class="list">${prox.map(a => { const p = pacDe(a.pid), s = svc(a.sid);
+    return `<button class="item" data-pd="${agDia(a.ini)}" type="button"><div class="hr">${agHora(a.ini)}<small>${rotDia(agDia(a.ini))}</small></div><div class="grow"><span class="t">${esc(p ? p.nome : 'Paciente removida')}</span><div class="m">${esc(s ? s.nome : 'Sem serviço')}</div></div></button>`; }).join('')}</div></section>` : '';
   app.innerHTML = `<div class="saud"><h1>${saudacao()}, Rose</h1><p class="sub">${DIAS_SEM[(dh.getDay() + 6) % 7]}, ${dh.getDate()} ${MES[dh.getMonth()]}</p></div>
     ${demoNoteHtml()}
-    <div class="semana"><div class="dias" role="group" aria-label="Dias da semana">${semana.map((d, i) => `<button class="dia${d === t ? ' hoje' : ''}${porDia.get(d) ? ' tem' : ''}" data-d="${d}" type="button" aria-pressed="${d === agSel}" aria-label="${esc(nomeDia(d))}${porDia.get(d) ? ', ' + porDia.get(d) + ' horários' : ''}"><small>${DIAS_SEM[i]}</small><b>${+d.slice(8)}</b><i></i></button>`).join('')}</div></div>
+    <div class="ag-col"><div class="semana"><div class="dias" role="group" aria-label="Dias da semana">${semana.map((d, i) => `<button class="dia${d === t ? ' hoje' : ''}${porDia.get(d) ? ' tem' : ''}" data-d="${d}" type="button" aria-pressed="${d === agSel}" aria-label="${esc(nomeDia(d))}${porDia.get(d) ? ', ' + porDia.get(d) + ' horários' : ''}"><small>${DIAS_SEM[i]}</small><b>${+d.slice(8)}</b><i></i></button>`).join('')}</div></div>
     ${paraLembrar && agSel !== amanha ? `<button class="faixa" id="ag-amanha" type="button">${ICO_BALAO}<span>Amanhã: lembrar ${paraLembrar} ${paraLembrar === 1 ? 'paciente' : 'pacientes'}</span><span class="pill soon">${paraLembrar}</span></button>` : ''}
     <section><div class="subh"><div><h2 style="margin:0">${esc(agSel === t ? 'Hoje' : nomeDia(agSel))}</h2><p class="sub" style="margin:2px 0 0">${resumo}</p></div><div class="actions" style="flex-wrap:nowrap;gap:6px">${agSel !== t ? '<button class="btn ghost small" id="ag-hoje" type="button">Hoje</button>' : ''}<button class="seta pq" id="ag-prev" type="button" aria-label="Semana anterior">${SETA_E}</button><button class="seta pq" id="ag-next" type="button" aria-label="Próxima semana">${SETA_D}</button></div></div>
-      <div class="list">${doDia.length ? doDia.map(linha).join('') : vazio}</div></section>
-    <div class="list"><a class="item" href="#lembretes"><div class="avatar">${ICO_SINO}</div><div class="grow"><span class="t">${nL ? nL + (nL === 1 ? ' lembrete para enviar' : ' lembretes para enviar') : 'Lembretes em dia'}</span><div class="m">${nL ? 'Mensagens prontas para o WhatsApp' : 'Nada para enviar agora'}</div></div>${nL ? `<span class="pill soon">${nL}</span>` : ''}</a></div>`;
+      <div class="list">${doDia.length ? doDia.map(linha).join('') : vazio}</div></section></div>
+    <aside class="ag-side"><div class="list"><a class="item" href="#lembretes"><div class="avatar">${ICO_SINO}</div><div class="grow"><span class="t">${nL ? nL + (nL === 1 ? ' lembrete para enviar' : ' lembretes para enviar') : 'Lembretes em dia'}</span><div class="m">${nL ? 'Mensagens prontas para o WhatsApp' : 'Nada para enviar agora'}</div></div>${nL ? `<span class="pill soon">${nL}</span>` : ''}</a></div>${proximosHtml}</aside>`;
   const vai = d => { agSel = d; viewAgenda(app); };
   $$('.dia', app).forEach(b => b.onclick = () => vai(b.dataset.d));
   $('#ag-prev').onclick = () => vai(addDays(agSel, -7)); $('#ag-next').onclick = () => vai(addDays(agSel, 7));
   const hoje = $('#ag-hoje'); if (hoje) hoje.onclick = () => vai(t);
   const am = $('#ag-amanha'); if (am) am.onclick = () => vai(amanha);
   const dep = $('#ag-depois'); if (dep) dep.onclick = () => vai(agDia(depois.ini));
+  $$('[data-pd]', app).forEach(b => b.onclick = () => vai(b.dataset.pd));
   const vz = $('#ag-vazio'); if (vz) vz.onclick = () => agNovo(null, agSel);
   $$('[data-ag]', app).forEach(b => b.onclick = () => agDetalhe(db.agenda.find(a => a.id === b.dataset.ag)));
   $$('[data-lembrar]', app).forEach(a => a.onclick = () => { const x = db.agenda.find(y => y.id === a.dataset.lembrar), L = agLembrete(x);
