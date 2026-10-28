@@ -41,10 +41,12 @@ function seed(){
       atend.push({id: uid(), data, servicoId: s.id, regiao: '', produto: '', lote: '', sessao: '', valor: s.pix ?? '', evolucao: '', retorno: addDays(data, s.ret)});
       d -= Math.round(14 + rnd() * 30 + (s.ret > 60 ? 40 : 0)); }
     return mk(i, atend); });
+  const pacotes = [{id: uid(), pid: patients[3].id, sid: leves[0].id, total: 8, usadas: 3, valor: 400, criado: addDays(t, -30), validade: addDays(t, 6), forma: 'Pix',
+    parc: [{id: uid(), venc: addDays(t, -30), valor: 200, pago: true, pagoEm: addDays(t, -30)}, {id: uid(), venc: addDays(t, 3), valor: 200, pago: false, pagoEm: ''}]}];
   const agenda = [[0, 1, '10:00'], [1, 1, '14:30'], [2, 2, '09:00']].map(([i, d, h]) => ({id: uid(), pid: patients[i].id, sid: leves[i].id, ini: addDays(t, d) + 'T' + h, dur: leves[i].dur || 60, status: 'agendado', obs: '', gid: '', rem: []}));
-  return {v: 1, services: SERVICES.map(x => ({...x})), patients, msgs: [], tpl: {}, agenda};
+  return {v: 1, services: SERVICES.map(x => ({...x})), patients, msgs: [], tpl: {}, agenda, pacotes};
 }
-let db = {v: 1, services: [], patients: [], msgs: [], tpl: {}, agenda: []};
+let db = {v: 1, services: [], patients: [], msgs: [], tpl: {}, agenda: [], pacotes: []};
 
 /* ---------- interface base ---------- */
 function toast(msg){ const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 2200); }
@@ -87,7 +89,8 @@ const TPL_PADRAO = {
   manutencao: 'Oi, {nome}! Está chegando a hora do seu retorno ({servico}). Quer que eu veja um horário pra você?',
   sumida: 'Oi, {nome}! Tudo bem? Faz um tempinho que não te vejo por aqui na Rose Coutinho. Como você está? Posso ver um horário pra você essa semana?',
   procedimento: 'Oi, {nome}! Passando para lembrar do seu horário amanhã, {data} às {hora}: {servico}. Posso confirmar?',
-  pagamento: 'Oi, {nome}! Lembrando que o vencimento do seu pagamento é {data}. Qualquer dúvida é só me chamar.',
+  pagamento: 'Oi, {nome}! Lembrando que a parcela de {valor} do seu plano ({servico}) vence em {data}. Qualquer dúvida é só me chamar.',
+  pagamento_atraso: 'Oi, {nome}! Notei que a parcela de {valor} do seu plano ({servico}), com vencimento em {data}, ainda está em aberto. Posso te ajudar com alguma dúvida?',
   fim_plano: 'Oi, {nome}! Seu plano ({servico}) termina em {data}. Vamos conversar sobre a continuidade do seu tratamento?',
 };
 const tplOf = k => (db.tpl && db.tpl[k]) || TPL_PADRAO[k];
@@ -95,11 +98,11 @@ const monthAdd = (key, n) => { const [y, m] = key.split('-').map(Number); const 
 const money0 = n => 'R$ ' + Math.round(n).toLocaleString('pt-BR');
 const short = n => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace('.', ',') + 'k' : String(Math.round(n));
 const firstName = n => n.trim().split(/\s+/)[0];
-const msgText = (p, tpl, servico, data, hora) => tpl.replace('{nome}', firstName(p.nome)).replace('{servico}', servico || 'procedimento').replace('{data}', data ? fmtD(data).slice(0, 5) : '').replace('{hora}', hora || '');
-function waLink(p, tpl, servico, data, hora){
+const msgText = (p, tpl, x = {}) => tpl.replace('{nome}', firstName(p.nome)).replace('{servico}', x.servico || 'procedimento').replace('{data}', x.data ? fmtD(x.data).slice(0, 5) : '').replace('{hora}', x.hora || '').replace('{valor}', x.valor || '');
+function waLink(p, tpl, x){
   const d = (p.tel || '').replace(/\D/g, ''); if (d.length < 10) return '';
   const num = d.length >= 12 && d.startsWith('55') ? d : '55' + d;
-  return 'https://wa.me/' + num + '?text=' + encodeURIComponent(msgText(p, tpl, servico, data, hora));
+  return 'https://wa.me/' + num + '?text=' + encodeURIComponent(msgText(p, tpl, x));
 }
 function lastAtend(p){ return [...p.atend].sort((a, b) => b.data.localeCompare(a.data))[0]; }
 
@@ -143,7 +146,7 @@ function viewInicio(app){
     return {cls, txt: (cls === 'flat' ? '= ' : cls === 'up' ? '▲ ' : '▼ ') + Math.abs(Math.round(k.rel * 100)) + '% vs mês anterior'}; };
   const mesNome = new Date(+D.mes.slice(0, 4), +D.mes.slice(5) - 1, 1).toLocaleDateString('pt-BR', {month: 'long'});
   const maxS = Math.max(...D.porServico.map(x => x.rec), 1), maxC = Math.max(...D.porCategoria.map(x => x.rec), 1);
-  const linha = (x, tipo) => { const s = svc(x.l.servicoId), nome = esc(x.p.nome), link = waLink(x.p, tipo === 'sumida' ? tplOf('sumida') : tplOf('manutencao'), s && s.nome);
+  const linha = (x, tipo) => { const s = svc(x.l.servicoId), nome = esc(x.p.nome), link = waLink(x.p, tipo === 'sumida' ? tplOf('sumida') : tplOf('manutencao'), {servico: s && s.nome});
     return `<div class="item static"><a class="avatar" href="#paciente-${x.p.id}" aria-label="Abrir ficha de ${nome}" style="text-decoration:none">${esc(initials(x.p.nome))}</a><div class="grow"><a class="t" href="#paciente-${x.p.id}" style="color:inherit;text-decoration:none">${nome}</a><div class="m">${tipo === 'sumida' ? 'última visita há ' + x.dias + ' dias' : esc(s ? s.nome : 'Retorno') + ' · venceu há ' + x.atraso + ' dias'}</div></div>${link ? `<a class="btn small" href="${link}" target="_blank" rel="noopener">Chamar</a>` : '<span class="pill">sem telefone</span>'}</div>`; };
   const lista = (rows, tipo, vazio) => rows.length ? `<div class="list">${rows.slice(0, 6).map(x => linha(x, tipo)).join('')}${rows.length > 6 ? `<div class="empty" style="padding:10px">e mais ${rows.length - 6}</div>` : ''}</div>` : `<div class="list"><div class="empty">${vazio}</div></div>`;
   const receitaK = K[0], alerta = receitaK.rel != null && receitaK.rel <= -0.15 ? `<div class="alert" role="alert">Receita ${Math.abs(Math.round(receitaK.rel * 100))}% abaixo do mesmo período do mês anterior</div>` : '';
@@ -166,7 +169,7 @@ function viewInicio(app){
       <li><span class="tag bad">Piorou</span><span>${pior ? esc(fmtK(pior)) : 'Nada abaixo do mês anterior até agora.'}</span></li>
       <li><span class="tag act">Exige ação</span><span>${acoes.length ? esc(acoes.join(' e ')) : 'Nenhuma pendência de retorno ou reativação.'}</span></li></ul></div></section>
     <p class="src">Fonte: atendimentos registrados no app. A receita soma só atendimentos com valor informado. Comparação: dias 1 a ${dia} deste mês contra dias 1 a ${dia} do mês anterior. Paciente novo: primeira visita registrada no app. Sumido: última visita entre ${SUMIDA_DIAS} dias e 1 ano.</p>`;
-  const rm = $('#rm-demo'); if (rm) rm.onclick = () => { db.patients = db.patients.filter(p => !p.demo); db.msgs = db.msgs.filter(m => db.patients.some(p => p.id === m.pid)); db.agenda = db.agenda.filter(a => db.patients.some(p => p.id === a.pid)); save(); route(); toast('Exemplos removidos'); };
+  const rm = $('#rm-demo'); if (rm) rm.onclick = () => { db.patients = db.patients.filter(p => !p.demo); db.msgs = db.msgs.filter(m => db.patients.some(p => p.id === m.pid)); db.agenda = db.agenda.filter(a => db.patients.some(p => p.id === a.pid)); db.pacotes = db.pacotes.filter(k => db.patients.some(p => p.id === k.pid)); save(); route(); toast('Exemplos removidos'); };
 }
 
 /* ---------- pacientes ---------- */
@@ -227,7 +230,7 @@ function importForm(){
 }
 
 /* ---------- ficha do paciente ---------- */
-const TABS = [['dados', 'Dados'], ['aval', 'Avaliação'], ['anam', 'Anamnese'], ['atend', 'Atendimentos'], ['ciclo', 'Ciclo']];
+const TABS = [['dados', 'Dados'], ['aval', 'Avaliação'], ['anam', 'Anamnese'], ['atend', 'Atendimentos'], ['pacotes', 'Pacotes'], ['ciclo', 'Ciclo']];
 const ANAM = [['gestante', 'Gestante ou lactante'], ['alergia', 'Alergias (medicamentos, látex, anestésicos, cosméticos)'], ['medic', 'Uso contínuo de medicamentos'], ['anticoag', 'Anticoagulante ou AAS'], ['diabetes', 'Diabetes'], ['hipert', 'Hipertensão'], ['tireoide', 'Alteração de tireoide'], ['cardio', 'Doença cardíaca ou marca-passo'], ['metal', 'Implantes metálicos ou próteses'], ['onco', 'Histórico oncológico'], ['autoimune', 'Doença autoimune'], ['queloide', 'Tendência a queloide ou má cicatrização'], ['herpes', 'Herpes labial recorrente'], ['isotret', 'Isotretinoína nos últimos 6 meses'], ['cirurgia', 'Cirurgias recentes ou plásticas'], ['procs', 'Procedimentos estéticos anteriores'], ['fuma', 'Fumante'], ['sol', 'Exposição solar frequente ou bronzeamento recente']];
 function viewPaciente(app, p){
   app.innerHTML = `
@@ -238,7 +241,7 @@ function viewPaciente(app, p){
   $$('.chip', app).forEach(c => c.onclick = () => { ptab = c.dataset.t; viewPaciente(app, p); });
   $('#p-ag').onclick = () => agNovo(p.id);
   const b = $('#pbody');
-  ({dados: tabDados, aval: tabAval, anam: tabAnam, atend: tabAtend, ciclo: tabCiclo})[ptab](b, p);
+  ({dados: tabDados, aval: tabAval, anam: tabAnam, atend: tabAtend, pacotes: tabPacotes, ciclo: tabCiclo})[ptab](b, p);
 }
 function tabDados(b, p){
   b.innerHTML = `<div class="card form">${field('d-nome', 'Nome completo', p.nome)}
@@ -250,7 +253,7 @@ function tabDados(b, p){
   $('#d-ok').onclick = () => { const nome = val('d-nome'); if (!nome) return toast('Informe o nome');
     const ok = $('#d-lgpd').checked; Object.assign(p, {nome, tel: val('d-tel'), nasc: val('d-nasc'), insta: val('d-insta'), origem: val('d-origem'), obs: val('d-obs')});
     p.lgpd = {ok, data: ok ? ((p.lgpd && p.lgpd.ok && p.lgpd.data) || today()) : ''}; save(); route(); toast('Salvo'); };
-  arm($('#d-del'), () => { db.patients = db.patients.filter(x => x.id !== p.id); db.msgs = db.msgs.filter(m => m.pid !== p.id); db.agenda = db.agenda.filter(a => a.pid !== p.id); save(); location.hash = '#pacientes'; });
+  arm($('#d-del'), () => { db.patients = db.patients.filter(x => x.id !== p.id); db.msgs = db.msgs.filter(m => m.pid !== p.id); db.agenda = db.agenda.filter(a => a.pid !== p.id); db.pacotes = db.pacotes.filter(k => k.pid !== p.id); save(); location.hash = '#pacientes'; });
 }
 function tabAval(b, p){
   const a = p.aval || {}, peso = parseFloat(String(a.peso || '').replace(',', '.')), alt = parseFloat(String(a.altura || '').replace(',', '.'));
@@ -341,8 +344,8 @@ function tabCiclo(b, p){
 }
 
 /* ---------- lembretes por WhatsApp (a Rose só toca em enviar) ---------- */
-const TIPO_NOME = {aniversario: 'Aniversário', manutencao: 'Manutenção', sumida: 'Sumida', procedimento: 'Procedimento', pagamento: 'Pagamento', fim_plano: 'Fim de plano'};
-const MSG_ORDEM = ['aniversario', 'manutencao', 'sumida', 'procedimento', 'pagamento', 'fim_plano'];
+const TIPO_NOME = {aniversario: 'Aniversário', manutencao: 'Manutenção', sumida: 'Sumida', procedimento: 'Procedimento', pagamento: 'Pagamento', pagamento_atraso: 'Pagamento em atraso', fim_plano: 'Fim de plano'};
+const MSG_ORDEM = ['aniversario', 'manutencao', 'sumida', 'procedimento', 'pagamento', 'pagamento_atraso', 'fim_plano'];
 function lembretesData(){
   const t = today(), D = dashData(), out = [];
   const enviado = (pid, chave) => db.msgs.some(m => m.pid === pid && m.chave === chave);
@@ -353,26 +356,33 @@ function lembretesData(){
       add(p, 'manutencao', 'manutencao:' + l.id, (s ? s.nome : 'Retorno') + (l.retorno < t ? ' · venceu há ' + diffDays(t, l.retorno) + ' dias' : l.retorno === t ? ' · é hoje' : ' · em ' + fmtD(l.retorno).slice(0, 5)), {servico: s && s.nome, data: l.retorno, aviso: cicloAviso(p, l.retorno)}); });
   db.agenda.filter(a => (a.status === 'agendado' || a.status === 'confirmado') && agDia(a.ini) === addDays(t, 1)).forEach(a => { const p = pacDe(a.pid), s = svc(a.sid); if (!p) return;
     add(p, 'procedimento', 'procedimento:' + a.id + ':' + a.ini, (s ? s.nome : 'Horário') + ' · amanhã às ' + agHora(a.ini), {servico: s && s.nome, data: agDia(a.ini), hora: agHora(a.ini)}); });
+  db.pacotes.forEach(k => { const p = pacDe(k.pid); if (!p) return; const s = svc(k.sid), nome = s ? s.nome : 'Pacote';
+    k.parc.filter(x => !x.pago).forEach(x => { const d = diffDays(x.venc, t), base = {servico: nome, data: x.venc, valor: money(x.valor)}, ch = 'pagamento:' + x.id + ':';
+      if (d < 0) add(p, 'pagamento', ch + 'atraso:' + t.slice(0, 7), nome + ' · parcela de ' + money(x.valor) + ' venceu há ' + (-d) + ' dias', {...base, tpl: 'pagamento_atraso'});
+      else if (d <= 1) add(p, 'pagamento', ch + '1d', nome + ' · parcela de ' + money(x.valor) + (d === 0 ? ' vence hoje' : ' vence amanhã'), base);
+      else if (d <= 7) add(p, 'pagamento', ch + '7d', nome + ' · parcela de ' + money(x.valor) + ' vence em ' + d + ' dias', base); });
+    if (k.validade && k.usadas < k.total) { const d = diffDays(k.validade, t);
+      if (d >= 0 && d <= 7) add(p, 'fim_plano', 'fim_plano:' + k.id + ':' + k.validade, nome + ' · plano termina em ' + fmtD(k.validade).slice(0, 5) + ' (faltam ' + (k.total - k.usadas) + ' sessões)', {servico: nome, data: k.validade}); } });
   D.sumidos.forEach(x => add(x.p, 'sumida', 'sumida:' + t.slice(0, 7), 'última visita há ' + x.dias + ' dias'));
   return out.sort((a, b) => a.sent - b.sent || MSG_ORDEM.indexOf(a.tipo) - MSG_ORDEM.indexOf(b.tipo));
 }
 function viewLembretes(app){
   const L = lembretesData(), pend = L.filter(x => !x.sent), feitos = L.filter(x => x.sent).length;
   const nomeDe = id => (db.patients.find(p => p.id === id) || {nome: 'Paciente removida'}).nome;
-  const linha = (x, i) => { const link = waLink(x.p, tplOf(x.tipo), x.servico, x.data, x.hora);
+  const linha = (x, i) => { const link = waLink(x.p, tplOf(x.tpl || x.tipo), x);
     return `<div class="item static"><a class="avatar" href="#paciente-${x.p.id}" aria-label="Abrir ficha de ${esc(x.p.nome)}" style="text-decoration:none">${esc(initials(x.p.nome))}</a><div class="grow"><a class="t" href="#paciente-${x.p.id}" style="color:inherit;text-decoration:none">${esc(x.p.nome)}</a><div class="m"><b>${TIPO_NOME[x.tipo]}</b> · ${esc(x.det)}</div>${x.aviso ? `<div class="m" style="color:var(--warn)">${esc(x.aviso)}</div>` : ''}</div>${link ? `<a class="btn small" data-send="${i}" href="${link}" target="_blank" rel="noopener">WhatsApp</a>` : '<span class="pill">sem telefone</span>'}</div>`; };
   const recentes = [...db.msgs].sort((a, b) => b.em.localeCompare(a.em)).slice(0, 8);
   app.innerHTML = `<div class="head"><div><h1>Lembretes</h1><p class="sub">${pend.length ? pend.length + ' para enviar hoje' : 'Nada para enviar agora'}${feitos ? ' · ' + feitos + ' já enviado' + (feitos > 1 ? 's' : '') : ''}</p></div><div class="actions"><button class="btn ghost small" id="l-tpl" type="button">Editar mensagens</button></div></div>
     <section><div class="list">${pend.length ? pend.map(linha).join('') : '<div class="empty">Tudo em dia.</div>'}</div></section>
     <section><h2>Enviados recentemente</h2><div class="list">${recentes.length ? recentes.map(m => `<div class="item static"><div class="grow"><span class="t">${esc(nomeDe(m.pid))}</span><div class="m">${TIPO_NOME[m.tipo] || 'Mensagem'} · ${new Date(m.em).toLocaleDateString('pt-BR')}</div></div></div>`).join('') : '<div class="empty">Nenhum envio registrado.</div>'}</div></section>
-    <p class="src">O botão abre o WhatsApp com a mensagem pronta; quem envia é a Rose. Ao tocar, o envio fica registrado e o lembrete sai da lista. Aniversário no dia; manutenção até 3 dias antes do retorno; sumida a partir de ${SUMIDA_DIAS} dias sem vir. Procedimento: 1 dia antes do horário. Pagamento e fim de plano entram com os pacotes.</p>`;
+    <p class="src">O botão abre o WhatsApp com a mensagem pronta; quem envia é a Rose. Ao tocar, o envio fica registrado e o lembrete sai da lista. Aniversário no dia; manutenção até 3 dias antes do retorno; sumida a partir de ${SUMIDA_DIAS} dias sem vir. Procedimento: 1 dia antes do horário. Pagamento: 7 dias e 1 dia antes do vencimento da parcela, e uma vez por mês enquanto estiver atrasada. Fim de plano: 7 dias antes da validade do pacote, se ainda houver sessões.</p>`;
   $$('a[data-send]', app).forEach(a => a.onclick = () => { const x = pend[+a.dataset.send];
-    registrarEnvio(x.p.id, x.tipo, x.chave, msgText(x.p, tplOf(x.tipo), x.servico, x.data, x.hora)); setTimeout(route, 400); });
+    registrarEnvio(x.p.id, x.tipo, x.chave, msgText(x.p, tplOf(x.tpl || x.tipo), x)); setTimeout(route, 400); });
   $('#l-tpl').onclick = tplForm;
 }
 function registrarEnvio(pid, tipo, chave, texto){ db.msgs.push({id: uid(), pid, tipo, chave, texto, em: new Date().toISOString()}); save(); }
 function tplForm(){
-  openSheet('Mensagens do WhatsApp', `<div class="form"><p class="sub" style="margin:0">Use {nome}, {servico}, {data} e {hora}. Pagamento e fim de plano ficam prontos para quando os pacotes entrarem.</p>
+  openSheet('Mensagens do WhatsApp', `<div class="form"><p class="sub" style="margin:0">Use {nome}, {servico}, {data}, {hora} e {valor}.</p>
     ${MSG_ORDEM.map(k => area('t-' + k, TIPO_NOME[k], tplOf(k))).join('')}
     <div class="actions"><button class="btn" id="t-ok" type="button">Salvar</button><button class="btn ghost" id="t-rst" type="button">Voltar ao padrão</button></div></div>`);
   $('#t-ok').onclick = () => { const tpl = {}; MSG_ORDEM.forEach(k => { const v = val('t-' + k); if (v && v !== TPL_PADRAO[k]) tpl[k] = v; }); db.tpl = tpl; save(); closeSheet(); route(); toast('Mensagens salvas'); };
@@ -454,6 +464,62 @@ function agDetalhe(a){
     if (mot === 'periodo' && p) { const d = val('g-ini'); const ini = (p.ciclo && p.ciclo.inicios) || []; if (d && !ini.includes(d)) p.ciclo = {inicios: [...ini, d].sort()}; }
     a.ini = novo; a.status = 'agendado'; a.obs = val('g-obs'); save(); closeSheet(); route(); toast('Remarcado'); };
   arm($('#g-del'), () => { db.agenda = db.agenda.filter(x => x.id !== a.id); save(); closeSheet(); route(); });
+}
+
+/* ---------- pacotes e pagamentos (cada parcela é um lançamento de entrada ligado ao pacote) ---------- */
+const FORMAS = ['Pix', 'Cartão', 'Dinheiro', 'Transferência'];
+const addMonths = (s, n) => { const d = parse(s), dia = d.getDate(); d.setDate(1); d.setMonth(d.getMonth() + n); d.setDate(Math.min(dia, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate())); return iso(d); };
+const pagoDe = k => k.parc.filter(x => x.pago).reduce((s, x) => s + x.valor, 0);
+const numBR = v => { const n = Number(String(v).replace(',', '.')); return Number.isFinite(n) ? n : NaN; };
+function parcelas(valor, n, primeiro, jaPaga){
+  const cents = Math.round(valor * 100), cada = Math.floor(cents / n);
+  return Array.from({length: n}, (_, i) => ({id: uid(), venc: addMonths(primeiro, i), valor: (i === n - 1 ? cents - cada * (n - 1) : cada) / 100, pago: !!(jaPaga && i === 0), pagoEm: jaPaga && i === 0 ? today() : ''}));
+}
+function tabPacotes(b, p){
+  const t = today(), ks = db.pacotes.filter(k => k.pid === p.id).sort((a, c) => c.criado.localeCompare(a.criado));
+  const st = x => x.pago ? ['Pago', ''] : x.venc < t ? ['Atrasada', 'late'] : diffDays(x.venc, t) <= 7 ? ['Vence em breve', 'soon'] : ['A vencer', ''];
+  const card = k => { const s = svc(k.sid);
+    return `<div class="card form"><div><span class="t" style="font-weight:700">${esc(s ? s.nome : 'Pacote')}</span><p class="sub" style="margin:0">${k.usadas} de ${k.total} sessões · ${k.validade ? 'válido até ' + fmtD(k.validade) : 'sem validade'}</p></div>
+      <p class="sub" style="margin:0">Pago ${money(pagoDe(k))} de ${k.valor === '' ? 'valor a definir' : money(k.valor)}${k.forma ? ' · ' + esc(k.forma) : ''}</p>
+      <div class="list">${k.parc.map(x => { const [txt, cls] = st(x);
+        return `<div class="item static" style="flex-wrap:wrap"><div class="grow" style="min-width:120px"><span class="t" style="white-space:nowrap">${fmtD(x.venc)}</span><div class="m">${money(x.valor)}${x.pago && x.pagoEm ? ' · pago em ' + fmtD(x.pagoEm).slice(0, 5) : ''}</div></div><span class="pill ${cls}">${txt}</span><button class="btn ghost small" data-pg="${x.id}" data-k="${k.id}" type="button">${x.pago ? 'Desfazer' : 'Marcar pago'}</button></div>`; }).join('')}</div>
+      <div class="actions"><button class="btn small" data-us="${k.id}" type="button">Registrar sessão</button><button class="btn ghost small" data-ed="${k.id}" type="button">Editar</button><button class="btn danger small" data-del="${k.id}" type="button">Excluir</button></div></div>`; };
+  b.innerHTML = `<div class="actions"><button class="btn small" id="k-novo" type="button">Novo pacote</button></div>${ks.length ? ks.map(card).join('') : '<div class="list"><div class="empty">Nenhum pacote. Cadastre o plano contratado para acompanhar sessões e parcelas.</div></div>'}`;
+  const achar = id => db.pacotes.find(k => k.id === id);
+  $('#k-novo').onclick = () => pacoteForm(p);
+  $$('[data-pg]', b).forEach(x => x.onclick = () => { const par = achar(x.dataset.k).parc.find(y => y.id === x.dataset.pg); par.pago = !par.pago; par.pagoEm = par.pago ? today() : ''; save(); tabPacotes(b, p); });
+  $$('[data-us]', b).forEach(x => x.onclick = () => { const k = achar(x.dataset.us); if (k.usadas >= k.total) return toast('Todas as sessões já foram usadas'); k.usadas++; save(); tabPacotes(b, p); toast(k.usadas >= k.total ? 'Plano concluído' : 'Sessão registrada'); });
+  $$('[data-ed]', b).forEach(x => x.onclick = () => pacoteEdit(achar(x.dataset.ed), p));
+  $$('[data-del]', b).forEach(x => arm(x, () => { db.pacotes = db.pacotes.filter(k => k.id !== x.dataset.del); save(); tabPacotes(b, p); }));
+}
+function pacoteForm(p){
+  const opts = CATS.map(c => `<optgroup label="${esc(c)}">${db.services.filter(s => s.cat === c).map(s => `<option value="${s.id}">${esc(s.nome)}</option>`).join('')}</optgroup>`).join('');
+  openSheet('Novo pacote', `<div class="form">
+    <div class="f"><label for="k-svc">Serviço</label><select id="k-svc"><option value="">Escolha um serviço</option>${opts}</select></div>
+    <div class="f"><label for="k-opc">Pacote do catálogo</label><select id="k-opc"><option value="">Outro (preencher abaixo)</option></select></div>
+    <div class="two">${field('k-ses', 'Sessões', '', 'number', 'inputmode="numeric" min="1"')}${field('k-val', 'Valor total (R$)', '', 'text', 'inputmode="decimal"')}</div>
+    <div class="two">${select('k-forma', 'Forma de pagamento', FORMAS)}${field('k-par', 'Parcelas', 1, 'number', 'inputmode="numeric" min="1" max="24"')}</div>
+    <div class="two">${field('k-venc', 'Primeiro vencimento', today(), 'date')}${field('k-validade', 'Validade do plano', addDays(today(), 180), 'date')}</div>
+    <label class="check"><input type="checkbox" id="k-pago1"><span>A primeira parcela já foi recebida</span></label>
+    <p class="sub" id="k-prev" style="margin:0"></p>
+    <div class="actions"><button class="btn" id="k-ok" type="button">Salvar pacote</button></div></div>`);
+  const prev = () => { const v = numBR(val('k-val')), n = Math.floor(+val('k-par')); const ok = v >= 0 && n >= 1 && n <= 24 && val('k-venc');
+    $('#k-prev').textContent = ok ? (() => { const ps = parcelas(v, n, val('k-venc'), false); return n + (n === 1 ? ' parcela de ' : ' parcelas de ') + money(ps[0].valor) + (n > 1 ? ', de ' + fmtD(ps[0].venc).slice(0, 5) + ' a ' + fmtD(ps[n - 1].venc).slice(0, 5) : ', vence ' + fmtD(ps[0].venc).slice(0, 5)); })() : ''; };
+  $('#k-svc').onchange = () => { const s = svc(val('k-svc')); $('#k-opc').innerHTML = '<option value="">Outro (preencher abaixo)</option>' + ((s && s.pacotes) || []).map((o, i) => `<option value="${i}">${o[0]} sessões · ${money(o[1])}</option>`).join(''); };
+  $('#k-opc').onchange = () => { const s = svc(val('k-svc')), o = s && s.pacotes && s.pacotes[+val('k-opc')]; if (o && val('k-opc') !== '') { $('#k-ses').value = o[0]; $('#k-val').value = o[1]; } prev(); };
+  ['k-val', 'k-par', 'k-venc'].forEach(id => $('#' + id).addEventListener('input', prev));
+  $('#k-ok').onclick = () => { const ses = Math.floor(+val('k-ses')), v = numBR(val('k-val')), n = Math.floor(+val('k-par'));
+    if (!val('k-svc')) return toast('Escolha o serviço'); if (!(ses >= 1)) return toast('Informe as sessões'); if (!(v >= 0)) return toast('Informe o valor total');
+    if (!(n >= 1 && n <= 24)) return toast('Parcelas: de 1 a 24'); if (!val('k-venc')) return toast('Informe o primeiro vencimento');
+    db.pacotes.push({id: uid(), pid: p.id, sid: val('k-svc'), total: ses, usadas: 0, valor: v, criado: today(), validade: val('k-validade'), forma: val('k-forma'), parc: parcelas(v, n, val('k-venc'), $('#k-pago1').checked)});
+    save(); closeSheet(); route(); toast('Pacote salvo'); };
+}
+function pacoteEdit(k, p){
+  openSheet('Editar pacote', `<div class="form"><div class="two">${field('e-ses', 'Sessões contratadas', k.total, 'number', 'inputmode="numeric" min="1"')}${field('e-us', 'Sessões usadas', k.usadas, 'number', 'inputmode="numeric" min="0"')}</div>
+    ${field('e-validade', 'Validade do plano', k.validade, 'date')}<p class="sub" style="margin:0">Para mudar valores ou parcelas, exclua o pacote e cadastre de novo.</p>
+    <div class="actions"><button class="btn" id="e-ok" type="button">Salvar</button></div></div>`);
+  $('#e-ok').onclick = () => { const ses = Math.floor(+val('e-ses')), us = Math.floor(+val('e-us')); if (!(ses >= 1) || !(us >= 0)) return toast('Confira as sessões'); if (us > ses) return toast('Usadas não pode passar do total');
+    Object.assign(k, {total: ses, usadas: us, validade: val('e-validade')}); save(); closeSheet(); route(); toast('Salvo'); };
 }
 
 /* ---------- serviços ---------- */
@@ -570,7 +636,7 @@ function viewConfig(){
   $('#app').innerHTML = '<div class="login card form"><h1 style="font-size:20px">Configuração pendente</h1><p style="margin:0">Faltam as variáveis do Supabase neste ambiente. Por segurança, o app não abre sem login. Veja o README, passo 3.</p></div>';
 }
 async function boot(){
-  if (!cloud) { if (!demoOk) return viewConfig(); db = localLoad() || seed(); db.msgs = db.msgs || []; db.tpl = db.tpl || {}; db.agenda = db.agenda || []; chrome(true); route(); return; }
+  if (!cloud) { if (!demoOk) return viewConfig(); db = localLoad() || seed(); db.msgs = db.msgs || []; db.tpl = db.tpl || {}; db.agenda = db.agenda || []; db.pacotes = db.pacotes || []; chrome(true); route(); return; }
   cloud.onStatus(setSync); cloud.onSignOut(() => location.reload());
   $('#logout').onclick = async () => { await cloud.signOut(); location.reload(); };
   gate();

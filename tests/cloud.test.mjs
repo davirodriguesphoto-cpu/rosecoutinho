@@ -3,7 +3,7 @@ import { createCloud, toRows, fromRows } from '../src/lib/cloud-core.js';
 
 /* Supabase simulado em memória: guarda linhas por tabela e registra cada chamada. */
 function fakeSb(){
-  const t = {servicos: new Map(), pacientes: new Map(), atendimentos: new Map(), mensagens: new Map(), agendamentos: new Map(), config: new Map()};
+  const t = {servicos: new Map(), pacientes: new Map(), atendimentos: new Map(), mensagens: new Map(), agendamentos: new Map(), pacotes_paciente: new Map(), lancamentos: new Map(), config: new Map()};
   const calls = []; let failNext = 0, delayMs = 0;
   const wait = () => new Promise(r => setTimeout(r, delayMs));
   const from = name => ({
@@ -111,5 +111,16 @@ function fakeAuth(st){
   const back = await createCloud(sb, opts).load(seed); assert.deepEqual(back.agenda, db.agenda);
   sb.calls.length = 0; db.patients = []; db.agenda = []; c.queue(db); await sleep(60);
   assert.deepEqual(sb.calls, [['delete', 'agendamentos', 1], ['delete', 'pacientes', 1]]); ok('agenda sincroniza em hora local e sai antes do paciente'); }
+
+/* 13. pacotes: parcelas viram lançamentos, voltam iguais e saem antes do paciente */
+{ const sb = fakeSb(), c = createCloud(sb, opts); const db = await c.load(seed);
+  db.patients.push({id: 'p1', nome: 'Ana', tel: '', nasc: '', insta: '', origem: '', obs: '', lgpd: {ok: false, data: ''}, aval: {}, anam: {}, atend: []});
+  db.pacotes = [{id: 'k1', pid: 'p1', sid: 'sv1', total: 8, usadas: 3, valor: 400, criado: '2026-10-01', validade: '2026-12-30', forma: 'Pix',
+    parc: [{id: 'l1', venc: '2026-10-01', valor: 200, pago: true, pagoEm: '2026-10-01'}, {id: 'l2', venc: '2026-11-01', valor: 200, pago: false, pagoEm: ''}]}];
+  c.queue(db); await sleep(60);
+  assert.equal(sb.t.pacotes_paciente.get('k1').valor_pago, 200); assert.equal(sb.t.lancamentos.get('l2').descricao, 'Parcela 2/2');
+  const back = await createCloud(sb, opts).load(seed); assert.deepEqual(back.pacotes, db.pacotes);
+  sb.calls.length = 0; db.patients = []; db.pacotes = []; c.queue(db); await sleep(60);
+  assert.deepEqual(sb.calls, [['delete', 'lancamentos', 2], ['delete', 'pacotes_paciente', 1], ['delete', 'pacientes', 1]]); ok('pacotes e parcelas sincronizam e saem antes do paciente'); }
 
 console.log(`\n${n} testes passaram`);
