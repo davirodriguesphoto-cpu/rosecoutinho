@@ -113,7 +113,7 @@ form,.form{display:flex;flex-direction:column;gap:14px}
 .tabs{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--surface);border-top:1px solid var(--line);
   padding:6px max(16px,env(safe-area-inset-left,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-right,0px))}
 .tabs .wrap{display:grid;grid-template-columns:repeat(5,1fr);gap:2px}
-.tabs a{display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px;border-radius:10px;text-decoration:none;color:var(--muted);font:600 9.5px var(--display);letter-spacing:.04em;text-transform:uppercase}
+.tabs a{display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px;border-radius:10px;text-decoration:none;color:var(--muted);font:600 11px var(--display);letter-spacing:0;text-transform:none}
 .tabs a svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
 .tabs a[aria-current="page"]{color:var(--link);background:var(--tint)}
 
@@ -216,7 +216,6 @@ body::before{position:fixed;inset:0 0 auto;height:calc(env(safe-area-inset-top,0
 .tabs a[aria-current="page"]{background:color-mix(in srgb,var(--tint) 88%,transparent);box-shadow:inset 0 1px 0 rgba(255,255,255,.55)}
 #toast{bottom:calc(98px + env(safe-area-inset-bottom,0px))}
 .panel{background:var(--glass2);border-radius:26px 26px 0 0;border-bottom:0}
-#sheet{-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
 .btn{border-radius:999px;padding:10px 20px;box-shadow:0 8px 20px -10px color-mix(in srgb,var(--btn) 70%,transparent),inset 0 1px 0 rgba(255,255,255,.22)}
 .btn.small{padding:6px 16px}
 .btn.ghost,.btn.danger{box-shadow:none}
@@ -263,7 +262,7 @@ body::before{position:fixed;inset:0 0 auto;height:calc(env(safe-area-inset-top,0
 .mapa .miolo{fill:var(--surface2);stroke:none}
 .mapa svg text{font:600 11px var(--display);letter-spacing:.14em;fill:var(--muted)}
 .mapa .traco{fill:none;stroke:var(--accent);stroke-opacity:.55;stroke-width:1.5;stroke-linecap:round}
-.mapa [data-r]{fill:var(--accent);fill-opacity:0;stroke:var(--accent);stroke-opacity:.3;stroke-width:1;stroke-dasharray:3 3;cursor:pointer;pointer-events:all;transition:fill-opacity .18s,stroke-opacity .18s}
+.mapa [data-r]{fill:var(--accent);fill-opacity:0;stroke:var(--accent);stroke-opacity:.5;stroke-width:1;stroke-dasharray:3 3;cursor:pointer;pointer-events:all;transition:fill-opacity .18s,stroke-opacity .18s}
 .mapa [data-r]:hover{fill-opacity:.2}
 .mapa [data-r].on{fill-opacity:.55;stroke-opacity:.95;stroke-dasharray:none}
 .mapa [data-r]:focus-visible{outline:none;stroke-opacity:1;stroke-width:2;stroke-dasharray:none}
@@ -309,3 +308,34 @@ body::before{position:fixed;inset:0 0 auto;height:calc(env(safe-area-inset-top,0
 .dl dd{margin:0;text-align:right;overflow-wrap:anywhere;white-space:pre-wrap}
 .vazio{color:var(--muted);font-size:13px}
 
+/* rodada 2: legibilidade, toque, folha do agendamento, custo do vidro */
+.dia small{font-size:11px}
+.word,.word small{color:var(--link)}
+.word small{font-size:11px}
+details.group>summary{color:var(--link)}
+.avatar{width:44px;height:44px}
+.chip,.btn.small{min-height:44px}
+.chip.peq,.seg button{min-height:40px}
+.note.fina .btn{min-height:40px}
+a.t{display:inline-block;padding:6px 0}
+.chips.grade{flex-wrap:wrap;overflow:visible}
+.linkbtn{background:none;border:0;padding:0 4px;min-height:44px;align-self:flex-start;font-weight:700;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.linkbtn.perigo{color:var(--bad)}
+.seta.pq{width:44px;height:44px;border-radius:50%}
+.subh .actions{align-items:center}
+.item.ag.proximo{background:color-mix(in srgb,var(--tint) 55%,transparent)}
+.item.ag.proximo .hr{color:var(--link)}
+.card,.kpi,.stat,.list,details.group{-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+
+/* folha: o fundo escurecido não pode ter desfoque (ele impediria o vidro do painel de funcionar); painel quase opaco para ler bem */
+.panel{background:color-mix(in srgb,var(--surface) 93%,transparent)}
+
+
+/* rodada 2: ultimos alvos de toque */
+.top .iconbtn,.top #tema{width:44px;height:44px;min-height:44px}
+.brand{min-width:44px;min-height:44px}
+.dias{gap:3px}
+.btn{min-height:44px}
+details.group>summary{min-height:44px;align-items:center}
+.bdg{font-size:11px}
+a.t{padding:12px 0}

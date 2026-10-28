@@ -167,9 +167,6 @@ function viewFinanceiro(app){
     return {cls, txt: (cls === 'flat' ? '= ' : cls === 'up' ? AR.up : AR.down) + Math.abs(Math.round(k.rel * 100)) + '% vs mês anterior'}; };
   const mesNome = new Date(+D.mes.slice(0, 4), +D.mes.slice(5) - 1, 1).toLocaleDateString('pt-BR', {month: 'long'});
   const maxS = Math.max(...D.porServico.map(x => x.rec), 1), maxC = Math.max(...D.porCategoria.map(x => x.rec), 1);
-  const linha = (x, tipo) => { const s = svc(x.l.servicoId), nome = esc(x.p.nome), link = waLink(x.p, tipo === 'sumida' ? tplOf('sumida') : tplOf('manutencao'), {servico: s && s.nome});
-    return `<div class="item static"><a class="avatar" href="#paciente-${x.p.id}" aria-label="Abrir ficha de ${nome}" style="text-decoration:none">${esc(initials(x.p.nome))}</a><div class="grow"><a class="t" href="#paciente-${x.p.id}" style="color:inherit;text-decoration:none">${nome}</a><div class="m">${tipo === 'sumida' ? 'última visita há ' + x.dias + ' dias' : esc(s ? s.nome : 'Retorno') + ' · venceu há ' + x.atraso + ' dias'}</div></div>${link ? `<a class="btn small" href="${link}" target="_blank" rel="noopener">Chamar</a>` : '<span class="pill">sem telefone</span>'}</div>`; };
-  const lista = (rows, tipo, vazio) => rows.length ? `<div class="list">${rows.slice(0, 6).map(x => linha(x, tipo)).join('')}${rows.length > 6 ? `<div class="empty" style="padding:10px">e mais ${rows.length - 6}</div>` : ''}</div>` : `<div class="list"><div class="empty">${vazio}</div></div>`;
   const receitaK = K[0], alerta = receitaK.rel != null && receitaK.rel <= -0.15 ? `<div class="alert" role="alert">Receita ${Math.abs(Math.round(receitaK.rel * 100))}% abaixo do mesmo período do mês anterior</div>` : '';
   const comBase = K.filter(k => k.rel != null), melhor = comBase.filter(k => k.rel > 0).sort((a, b) => b.rel - a.rel)[0], pior = comBase.filter(k => k.rel < 0).sort((a, b) => a.rel - b.rel)[0];
   const fmtK = k => `${k.l} ${k.rel > 0 ? '+' : '−'}${Math.abs(Math.round(k.rel * 100))}%`;
@@ -182,8 +179,7 @@ function viewFinanceiro(app){
     <section><h2>Serviços que mais faturam em ${esc(mesNome)}</h2><div class="card">${rankHtml(D.porServico.slice(0, 6), maxS)}</div></section>
     <section><h2>Receita por categoria</h2><div class="card">${rankHtml(D.porCategoria, maxC)}</div></section>
     <section><h2>O que merece atenção</h2><div style="display:flex;flex-direction:column;gap:14px">${alerta}
-      <div><div class="subh"><h2>Retornos vencidos</h2><span class="pill ${D.atrasados.length ? 'late' : ''}">${D.atrasados.length}</span></div>${lista(D.atrasados, 'retorno', 'Nenhum retorno vencido.')}</div>
-      <div><div class="subh"><h2>Pacientes sumidos (${SUMIDA_DIAS}+ dias)</h2><span class="pill ${D.sumidos.length ? 'soon' : ''}">${D.sumidos.length}</span></div>${lista(D.sumidos, 'sumida', 'Ninguém sumido por enquanto.')}${D.inativos ? `<p class="src">${D.inativos} ${D.inativos === 1 ? 'paciente inativo' : 'pacientes inativos'} há mais de 1 ano não aparecem aqui.</p>` : ''}</div></div></section>
+      <div class="list"><a class="item" href="#lembretes"><div class="avatar">${ICO_SINO}</div><div class="grow"><span class="t">${D.atrasados.length || D.sumidos.length ? [D.atrasados.length ? D.atrasados.length + (D.atrasados.length === 1 ? ' retorno vencido' : ' retornos vencidos') : '', D.sumidos.length ? D.sumidos.length + (D.sumidos.length === 1 ? ' paciente sumida' : ' pacientes sumidas') : ''].filter(Boolean).join(' · ') : 'Nenhum retorno vencido nem paciente sumida'}</span><div class="m">Mensagens prontas para o WhatsApp, em Lembretes${D.inativos ? ' · ' + D.inativos + (D.inativos === 1 ? ' inativa há mais de 1 ano fica de fora' : ' inativas há mais de 1 ano ficam de fora') : ''}</div></div>${D.atrasados.length + D.sumidos.length ? '<span class="pill soon">' + (D.atrasados.length + D.sumidos.length) + '</span>' : ''}</a></div></div></section>
     <section><h2>Resumo</h2><div class="card"><ul class="sumario">
       <li><span class="tag ok">Melhorou</span><span>${melhor ? esc(fmtK(melhor)) : 'Nada acima do mês anterior até agora.'}</span></li>
       <li><span class="tag bad">Piorou</span><span>${pior ? esc(fmtK(pior)) : 'Nada abaixo do mês anterior até agora.'}</span></li>
@@ -196,7 +192,7 @@ function viewPacientes(app){
   app.innerHTML = `
     <div class="head"><div><h1>Pacientes</h1><p class="sub" id="count"></p></div>
       <div class="actions"><button class="btn ghost" id="imp" type="button">Importar</button><button class="btn" id="new" type="button">Novo</button></div></div>
-    <input class="search" id="q" type="search" placeholder="Buscar por nome ou telefone" autocomplete="off">
+    <input class="search" id="q" type="search" placeholder="Buscar por nome ou telefone" aria-label="Buscar paciente por nome ou telefone" autocomplete="off">
     <div id="plist"></div>`;
   const draw = () => {
     const q = $('#q').value.trim().toLowerCase(), qd = q.replace(/\D/g, '');
@@ -524,16 +520,14 @@ function viewAgenda(app){
   const linha = a => { const p = pacDe(a.pid), s = svc(a.sid), rem = (a.rem || []).length, off = a.status === 'cancelado' || a.status === 'faltou', L = agLembrete(a);
     const acao = agLembravel(a) ? (agLembrado(a) ? '<span class="pill">Lembrete enviado</span>'
       : `<a class="btn ghost small" data-lembrar="${a.id}" href="${waLink(p, tplOf('procedimento'), {servico: s && s.nome, data: agDia(a.ini), hora: agHora(a.ini)})}" target="_blank" rel="noopener">${ICO_BALAO}Lembrar pelo WhatsApp</a>`) : '';
-    return `<div class="item ag${off ? ' apagado' : ''}"><button class="ag-main" data-ag="${a.id}" type="button"><div class="hr">${agHora(a.ini)}<small>até ${agFimHora(a)}</small></div><div class="grow"><span class="t">${esc(p ? p.nome : 'Paciente removida')}</span><div class="m">${esc(s ? s.nome : 'Sem serviço')}${rem ? ' · remarcado' + (rem > 1 ? ' ' + rem + 'x' : '') : ''}</div></div><span class="pill ${a.status === 'faltou' || a.status === 'cancelado' ? 'late' : a.status === 'agendado' ? 'soon' : ''}">${STATUS_AG[a.status]}</span></button>${acao ? `<div class="ag-acao">${acao}</div>` : ''}</div>`; };
+    return `<div class="item ag${off ? ' apagado' : ''}${proximoHoje && proximoHoje.id === a.id ? ' proximo' : ''}"><button class="ag-main" data-ag="${a.id}" type="button"><div class="hr">${agHora(a.ini)}<small>até ${agFimHora(a)}</small></div><div class="grow"><span class="t">${esc(p ? p.nome : 'Paciente removida')}</span><div class="m">${esc(s ? s.nome : 'Sem serviço')}${rem ? ' · remarcado' + (rem > 1 ? ' ' + rem + 'x' : '') : ''}</div></div><span class="pill ${a.status === 'faltou' || a.status === 'cancelado' ? 'late' : a.status === 'agendado' ? 'soon' : ''}">${STATUS_AG[a.status]}</span></button>${acao ? `<div class="ag-acao">${acao}</div>` : ''}</div>`; };
   const vazio = `<div class="empty">Dia livre.<div class="actions" style="justify-content:center;margin-top:12px"><button class="btn small" id="ag-vazio" type="button">Agendar neste dia</button>${depois ? `<button class="btn ghost small" id="ag-depois" type="button">Próximo: ${esc(nomeDia(agDia(depois.ini)).toLowerCase())}</button>` : ''}</div></div>`;
   const nL = lembretesData().filter(x => !x.sent).length, dh = new Date();
   app.innerHTML = `<div class="saud"><h1>${saudacao()}, Rose</h1><p class="sub">${DIAS_SEM[(dh.getDay() + 6) % 7]}, ${dh.getDate()} ${MES[dh.getMonth()]}</p></div>
     ${demoNoteHtml()}
-    <div class="semana"><button class="seta" id="ag-prev" type="button" aria-label="Semana anterior">${SETA_E}</button>
-      <div class="dias" role="group" aria-label="Dias da semana">${semana.map((d, i) => `<button class="dia${d === t ? ' hoje' : ''}${porDia.get(d) ? ' tem' : ''}" data-d="${d}" type="button" aria-pressed="${d === agSel}" aria-label="${esc(nomeDia(d))}${porDia.get(d) ? ', ' + porDia.get(d) + ' horários' : ''}"><small>${DIAS_SEM[i]}</small><b>${+d.slice(8)}</b><i></i></button>`).join('')}</div>
-      <button class="seta" id="ag-next" type="button" aria-label="Próxima semana">${SETA_D}</button></div>
+    <div class="semana"><div class="dias" role="group" aria-label="Dias da semana">${semana.map((d, i) => `<button class="dia${d === t ? ' hoje' : ''}${porDia.get(d) ? ' tem' : ''}" data-d="${d}" type="button" aria-pressed="${d === agSel}" aria-label="${esc(nomeDia(d))}${porDia.get(d) ? ', ' + porDia.get(d) + ' horários' : ''}"><small>${DIAS_SEM[i]}</small><b>${+d.slice(8)}</b><i></i></button>`).join('')}</div></div>
     ${paraLembrar && agSel !== amanha ? `<button class="faixa" id="ag-amanha" type="button">${ICO_BALAO}<span>Amanhã: lembrar ${paraLembrar} ${paraLembrar === 1 ? 'paciente' : 'pacientes'}</span><span class="pill soon">${paraLembrar}</span></button>` : ''}
-    <section><div class="subh"><div><h2 style="margin:0">${esc(agSel === t ? 'Hoje' : nomeDia(agSel))}</h2><p class="sub" style="margin:2px 0 0">${resumo}</p></div>${agSel !== t ? '<button class="btn ghost small" id="ag-hoje" type="button">Voltar para hoje</button>' : ''}</div>
+    <section><div class="subh"><div><h2 style="margin:0">${esc(agSel === t ? 'Hoje' : nomeDia(agSel))}</h2><p class="sub" style="margin:2px 0 0">${resumo}</p></div><div class="actions" style="flex-wrap:nowrap;gap:6px">${agSel !== t ? '<button class="btn ghost small" id="ag-hoje" type="button">Hoje</button>' : ''}<button class="seta pq" id="ag-prev" type="button" aria-label="Semana anterior">${SETA_E}</button><button class="seta pq" id="ag-next" type="button" aria-label="Próxima semana">${SETA_D}</button></div></div>
       <div class="list">${doDia.length ? doDia.map(linha).join('') : vazio}</div></section>
     <div class="list"><a class="item" href="#lembretes"><div class="avatar">${ICO_SINO}</div><div class="grow"><span class="t">${nL ? nL + (nL === 1 ? ' lembrete para enviar' : ' lembretes para enviar') : 'Lembretes em dia'}</span><div class="m">${nL ? 'Mensagens prontas para o WhatsApp' : 'Nada para enviar agora'}</div></div>${nL ? `<span class="pill soon">${nL}</span>` : ''}</a></div>`;
   const vai = d => { agSel = d; viewAgenda(app); };
@@ -573,7 +567,8 @@ function agDetalhe(a){
   const p = pacDe(a.pid), s = svc(a.sid), hist = a.rem || [];
   openSheet('Agendamento', `<div class="form">
     <div><p class="t" style="margin:0;font-weight:700">${esc(p ? p.nome : 'Paciente removida')}</p><p class="sub" style="margin:2px 0 0">${esc(s ? s.nome : 'Sem serviço')} · ${fmtD(agDia(a.ini))} às ${agHora(a.ini)} · ${a.dur} min</p></div>
-    <div class="chips" role="group" aria-label="Situação">${Object.entries(STATUS_AG).map(([k, l]) => `<button class="chip" data-st="${k}" aria-selected="${a.status === k}" type="button">${l}</button>`).join('')}</div>
+    ${p ? `<div class="actions"><a class="btn ghost small" href="#paciente-${p.id}">Abrir ficha</a>${waLink(p, '', {}) ? `<a class="btn ghost small" href="${waLink(p, '', {})}" target="_blank" rel="noopener">${ICO_BALAO}WhatsApp</a>` : ''}</div>` : ''}
+    <div class="chips grade" role="group" aria-label="Situação">${Object.entries(STATUS_AG).map(([k, l]) => `<button class="chip" data-st="${k}" aria-selected="${a.status === k}" type="button">${l}</button>`).join('')}</div>
     ${area('g-obs', 'Observações', a.obs)}
     <h2 style="margin:6px 0 0">Remarcar</h2>
     <div class="two">${field('g-dia', 'Nova data', agDia(a.ini), 'date')}${field('g-hora', 'Hora', agHora(a.ini), 'time')}</div>
@@ -581,8 +576,9 @@ function agDetalhe(a){
     <div id="g-per" hidden>${field('g-ini', 'Início da menstruação (ficha de ciclo)', today(), 'date')}<p class="sub" id="g-cic" style="margin:0"></p></div>
     <p class="sub" id="g-aviso" role="status" style="margin:0;color:var(--warn)"></p>
     ${hist.length ? `<p class="src" style="margin:0">Remarcações: ${hist.map(r => esc(fmtD(agDia(r.de)) + ' ' + agHora(r.de) + ' (' + ((MOTIVOS.find(m => m[0] === r.motivo) || [0, 'outro'])[1]).toLowerCase() + ')')).join('; ')}</p>` : ''}
-    <div class="actions"><button class="btn" id="g-rem" type="button">Remarcar</button><button class="btn ghost" id="g-save" type="button">Salvar</button><button class="btn danger" id="g-del" type="button">Excluir</button></div></div>`);
-  $$('[data-st]').forEach(b => b.onclick = () => { a.status = b.dataset.st; a.obs = val('g-obs'); save(); closeSheet(); route(); toast(STATUS_AG[a.status]); });
+    <div class="actions"><button class="btn" id="g-rem" type="button">Remarcar</button><button class="btn ghost" id="g-save" type="button">Salvar observações</button></div>
+    <button class="linkbtn perigo" id="g-del" type="button">Excluir agendamento</button></div>`);
+  $$('[data-st]').forEach(b => b.onclick = () => { a.status = b.dataset.st; a.obs = val('g-obs'); save(); $$('[data-st]').forEach(x => x.setAttribute('aria-selected', String(x === b))); route(); toast('Situação: ' + STATUS_AG[a.status]); });
   const aviso = () => { const novo = val('g-dia') + 'T' + val('g-hora'); $('#g-aviso').textContent = novo === a.ini ? '' : agAvisos(p, val('g-dia'), val('g-hora'), a.dur, a.id); };
   const motivo = () => { const per = val('g-mot') === 'periodo'; $('#g-per').hidden = !per;
     if (per && p) { const C = cicloCalc(p); $('#g-cic').textContent = C.ativo ? 'Previsão do ciclo já ativa (média de ' + C.media + ' dias). Esta data entra no histórico.' : 'Esta data entra no histórico do ciclo (' + C.medidos + ' de ' + CICLOS_MIN + ' ciclos medidos até agora).'; } };
@@ -713,7 +709,7 @@ function modeloForm(m){
 /* ---------- serviços ---------- */
 function viewServicos(app){
   app.innerHTML = `<div class="head"><div><h1>Serviços</h1><p class="sub">${db.services.length} no catálogo</p></div><button class="btn" id="s-new" type="button">Novo</button></div>
-    <input class="search" id="q" type="search" placeholder="Buscar serviço" autocomplete="off"><div id="slist"></div>
+    <input class="search" id="q" type="search" placeholder="Buscar serviço" aria-label="Buscar serviço" autocomplete="off"><div id="slist"></div>
     <p class="sub">Duração e prazo de retorno são sugestões iniciais. Toque em um serviço para ajustar.</p>`;
   const draw = () => {
     const q = $('#q').value.trim().toLowerCase();
