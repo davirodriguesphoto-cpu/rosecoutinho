@@ -326,7 +326,7 @@ function serviceForm(s){
 const IDLE_MIN = 15;
 const demoOk = import.meta.env.DEV || import.meta.env.VITE_DEMO === '1';
 const flag = (k, v) => { try { if (v === undefined) { const r = sessionStorage.getItem(k); sessionStorage.removeItem(k); return r; } sessionStorage.setItem(k, v); } catch (e) {} return null; };
-const setSync = st => { const e = $('#sync'); if (!e) return; const t = {pending: 'Alterações pendentes', syncing: 'Salvando…', ok: 'Salvo na nuvem', error: 'Sem conexão. Tentando de novo'}[st] || ''; e.textContent = t; e.className = 'sync' + (st === 'error' ? ' error' : ''); };
+const setSync = st => { const e = $('#sync'); if (!e) return; const t = {pending: 'Pendente', syncing: 'Salvando…', ok: '', error: 'Sem conexão'}[st] || ''; e.textContent = t; e.className = 'sync' + (st === 'error' ? ' error' : ''); };
 let cloudStep = false;
 function chrome(on){ $('.tabs').hidden = !on; $('#logout').hidden = !(on || cloudStep) || !cloud; }
 const authErr = e => e && e.status >= 400 && e.status < 500 ? 'Dados incorretos ou código expirado.' : 'Não foi possível conectar. Verifique a internet e tente de novo.';
