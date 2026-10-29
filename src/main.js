@@ -1,6 +1,7 @@
 import './style.css';
 import SERVICES from './services.json';
 import { cloud } from './lib/cloud.js';
+import { createGoogle } from './google.js';
 import corpoSvg from './assets/mapa/corpo.svg?raw';
 import rostoSvg from './assets/mapa/rosto.svg?raw';
 import { preencher as preencherContrato, faltando as faltandoContrato, novoToken, cpfValido } from './lib/contrato.js';
@@ -67,9 +68,13 @@ const area = (id, label, val = '') => `<div class="f"><label for="${id}">${label
 const select = (id, label, opts, val = '') => `<div class="f"><label for="${id}">${label}</label><select id="${id}">${opts.map(o => { const [v, l] = Array.isArray(o) ? o : [o, o]; return `<option value="${esc(v)}" ${v == val ? 'selected' : ''}>${esc(l)}</option>`; }).join('')}</select></div>`;
 const val = id => { const e = document.getElementById(id); return e ? e.value.trim() : ''; };
 
+/* ---------- Google: fotos no Drive, sincronia da agenda e backup ---------- */
+const G = createGoogle({$, $$, esc, toast, field, select, arm, fmtD, today, cloud, val, getDb: () => db, getAgSel: () => agSel});
+
 /* ---------- rotas ---------- */
 let ptab = 'dados';
 function route(){
+  G.retornoGoogle();
   const h = location.hash.slice(1) || 'agenda';
   const m = h.match(/^paciente-([\w-]+)$/);
   const tab = m ? 'pacientes' : (['agenda','pacientes','servicos','lembretes','financeiro'].includes(h) ? h : 'agenda');
@@ -84,7 +89,7 @@ function route(){
   else viewAgenda(app);
   badge();
 }
-window.addEventListener('hashchange', () => { ptab = 'dados'; dadosEdit = false; agSel = null; agCal = false; agAberto = new Set(); closeSheet(); route(); window.scrollTo(0, 0); const a = $('#app'); a.classList.remove('entra'); void a.offsetWidth; a.classList.add('entra'); });
+window.addEventListener('hashchange', () => { G.freeUrls(); ptab = 'dados'; dadosEdit = false; agSel = null; agCal = false; agAberto = new Set(); closeSheet(); route(); window.scrollTo(0, 0); const a = $('#app'); a.classList.remove('entra'); void a.offsetWidth; a.classList.add('entra'); });
 
 /* ---------- início: painel de gestão ---------- */
 const SUMIDA_DIAS = 90, INATIVA_DIAS = 365;
@@ -209,7 +214,7 @@ function patientForm(){
   $('#n-ok').onclick = () => {
     const nome = val('n-nome'); if (!nome) return toast('Informe o nome'); if (!cpfValido(val('n-cpf'))) return toast('CPF inválido: confira os números');
     const p = {id: uid(), nome, tel: val('n-tel'), nasc: val('n-nasc'), cpf: val('n-cpf'), rg: val('n-rg'), end: '', cep: '', insta: '', origem: '', obs: '', lgpd: {ok: false, data: ''}, aval: {}, anam: {}, atend: []};
-    db.patients.push(p); save(); closeSheet(); location.hash = '#paciente-' + p.id;
+    db.patients.push(p); G.marcarNovo(p.id); save(); closeSheet(); location.hash = '#paciente-' + p.id;
   };
 }
 function splitCSV(text){
@@ -245,11 +250,11 @@ function importForm(){
 }
 
 /* ---------- ficha do paciente ---------- */
-const TABS = [['dados', 'Dados'], ['aval', 'Avaliação'], ['anam', 'Anamnese'], ['atend', 'Atendimentos'], ['pacotes', 'Pacotes'], ['docs', 'Documentos'], ['ciclo', 'Ciclo']];
+const TABS = [['dados', 'Dados'], ['aval', 'Avaliação'], ['anam', 'Anamnese'], ['atend', 'Atendimentos'], ['pacotes', 'Pacotes'], ['docs', 'Documentos'], ['fotos', 'Fotos'], ['ciclo', 'Ciclo']];
 const ANAM = [['gestante', 'Gestante ou lactante'], ['alergia', 'Alergias (medicamentos, látex, anestésicos, cosméticos)'], ['medic', 'Uso contínuo de medicamentos'], ['anticoag', 'Anticoagulante ou AAS'], ['diabetes', 'Diabetes'], ['hipert', 'Hipertensão'], ['tireoide', 'Alteração de tireoide'], ['cardio', 'Doença cardíaca ou marca-passo'], ['metal', 'Implantes metálicos ou próteses'], ['onco', 'Histórico oncológico'], ['autoimune', 'Doença autoimune'], ['queloide', 'Tendência a queloide ou má cicatrização'], ['herpes', 'Herpes labial recorrente'], ['isotret', 'Isotretinoína nos últimos 6 meses'], ['cirurgia', 'Cirurgias recentes ou plásticas'], ['procs', 'Procedimentos estéticos anteriores'], ['fuma', 'Fumante'], ['sol', 'Exposição solar frequente ou bronzeamento recente']];
 /* ficha da paciente: cabeçalho com contato e contexto, seções agrupadas (Dados, Clínico, Histórico) e Dados em leitura */
 let dadosEdit = false;
-const GRUPOS = [['dados', 'Dados', ['dados']], ['clinico', 'Clínico', ['aval', 'anam', 'ciclo']], ['hist', 'Histórico', ['atend', 'pacotes', 'docs']]];
+const GRUPOS = [['dados', 'Dados', ['dados']], ['clinico', 'Clínico', ['aval', 'anam', 'ciclo']], ['hist', 'Histórico', ['atend', 'pacotes', 'docs', 'fotos']]];
 const telHref = t => 'tel:' + String(t || '').replace(/[^\d+]/g, '');
 function viewPaciente(app, p){
   const grupo = GRUPOS.find(g => g[2].includes(ptab)) || GRUPOS[0], rot = k => (TABS.find(x => x[0] === k) || [k, k])[1];
@@ -269,7 +274,7 @@ function viewPaciente(app, p){
   $$('[data-t]', app).forEach(c => c.onclick = () => { ptab = c.dataset.t; viewPaciente(app, p); });
   $('#p-ag').onclick = () => agNovo(p.id);
   const b = $('#pbody');
-  ({dados: tabDados, aval: tabAval, anam: tabAnam, atend: tabAtend, pacotes: tabPacotes, docs: tabDocs, ciclo: tabCiclo})[ptab](b, p);
+  ({dados: tabDados, aval: tabAval, anam: tabAnam, atend: tabAtend, pacotes: tabPacotes, docs: tabDocs, fotos: G.tabFotos, ciclo: tabCiclo})[ptab](b, p);
 }
 function tabDados(b, p){
   if (dadosEdit) return dadosForm(b, p);
@@ -497,6 +502,7 @@ function agConflito(ini, dur, ignorar){ const fim = agMs(ini) + dur * 60000; ret
 function agAvisos(p, dia, hora, dur, ignorar){
   const out = [], c = dia && hora ? agConflito(dia + 'T' + hora, dur, ignorar) : null;
   if (c) out.push('Já existe agendamento nesse horário (' + (pacDe(c.pid) || {nome: 'paciente removida'}).nome + ', ' + agHora(c.ini) + ').');
+  const gz = G.aviso(dia, hora, dur); if (gz) out.push(gz);
   const ciclo = p ? cicloAviso(p, dia) : ''; if (ciclo) out.push(ciclo);
   return out.join(' ');
 }
@@ -600,6 +606,7 @@ function viewAgenda(app){
   $$('[data-lembrar]', app).forEach(a => a.onclick = () => { const x = db.agenda.find(y => y.id === a.dataset.lembrar), L = agLembrete(x);
     registrarEnvio(x.pid, 'procedimento', L.chave, msgText(L.p, tplOf('procedimento'), {servico: L.s && L.s.nome, data: agDia(x.ini), hora: agHora(x.ini)})); setTimeout(() => viewAgenda(app), 400); });
   demoBind();
+  G.afterAgenda(app);
 }
 function agNovo(pid, dia){
   const p0 = pid ? pacDe(pid) : null, lista = [...db.patients].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
@@ -799,7 +806,7 @@ function serviceForm(s){
 const IDLE_MIN = 15;
 const demoOk = import.meta.env.DEV || import.meta.env.VITE_DEMO === '1';
 const flag = (k, v) => { try { if (v === undefined) { const r = sessionStorage.getItem(k); sessionStorage.removeItem(k); return r; } sessionStorage.setItem(k, v); } catch (e) {} return null; };
-const setSync = st => { const e = $('#sync'); if (!e) return; const t = {pending: 'Pendente', syncing: 'Salvando…', ok: '', error: 'Sem conexão'}[st] || ''; e.textContent = t; e.className = 'sync' + (st === 'error' ? ' error' : ''); };
+const setSync = st => { const e = $('#sync'); if (!e) return; const t = {pending: 'Pendente', syncing: 'Salvando…', ok: '', error: 'Sem conexão'}[st] || ''; e.textContent = t; e.className = 'sync' + (st === 'error' ? ' error' : ''); if (st === 'ok') G.afterSync(); };
 let cloudStep = false;
 function chrome(on){ $('.tabs').hidden = !on; $('#logout').hidden = !(on || cloudStep) || !cloud; }
 const authErr = e => e && e.status >= 400 && e.status < 500 ? 'Dados incorretos ou código expirado.' : 'Não foi possível conectar. Verifique a internet e tente de novo.';
