@@ -204,7 +204,7 @@ export function createGoogle(h){
   async function afterAgenda(app){
     if (!cloud) return;
     let card = $('#g-card', app); if (!card) { card = document.createElement('section'); card.id = 'g-card'; card.className = 'card form g-card'; (app.lastElementChild || app).after ? app.appendChild(card) : app.appendChild(card); }
-    try { await getGs(); } catch (e) { card.innerHTML = '<p class="sub" style="margin:0">Não foi possível falar com o servidor do Google.</p>'; return; }
+    try { await getGs(); } catch (e) { card.innerHTML = `<p class="sub" style="margin:0">Não foi possível falar com o servidor do Google.<br><b>Motivo:</b> ${esc(e.message || 'sem resposta')}${e.status ? ' (código ' + e.status + ')' : ''}</p>`; return; }
     if (!app.isConnected) return;
     if (!gs.conectado) { card.innerHTML = connectCard('A agenda, as fotos e o backup').replace(/^<div class="card form">/, '').replace(/<\/div>$/, ''); wireConnect(card); return; }
     card.innerHTML = `<h2 style="font-size:16px;margin:0">Google conectado</h2>
