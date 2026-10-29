@@ -51,5 +51,11 @@
       "destination": "/contrato.html",
       "permanent": false
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/backup",
+      "schedule": "0 6 * * *"
+    }
   ]
 }

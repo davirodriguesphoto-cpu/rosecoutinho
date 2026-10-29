@@ -11,7 +11,7 @@ Endereço previsto: `painel.rosecoutinho.com.br`
 |---|---|---|
 | 1 | Pacientes, avaliação, anamnese, atendimentos, catálogo de serviços, importação CSV, login com senha + código no celular, sincronização | **pronto** |
 | 1+ | Painel de Início: KPIs vs mês anterior, receita 6 meses, ranking de serviços e categorias, retornos vencidos, pacientes sumidos com botão de WhatsApp, resumo melhorou/piorou/ação | **pronto** (usa os atendimentos já registrados) |
-| 2 | Agenda ligada ao Google, registro de mensagens enviadas, mensagens editáveis | banco pronto, telas a fazer |
+| 2 | Agenda interna **sincronizada com o Google Agenda**, fotos no Google Drive, backup diário no Drive; registro de mensagens e mensagens editáveis | **pronto** (precisa da conexão do Google, seção 6) |
 | 3 | Termos, contratos, assinatura na tela, fotos antes/depois | banco e arquivos privados prontos, telas a fazer |
 | 4 | Estoque (mínimo, validade, curva ABC, baixa automática), financeiro e fluxo de caixa, a receber de pacotes, ponto de equilíbrio, precificação | banco pronto, telas a fazer |
 
@@ -53,6 +53,35 @@ Crie um repositório **privado** (ex.: `painel-rosecoutinho`) e envie estes arqu
 ### 5. Instalar no celular
 Abrir o endereço no navegador e usar "Adicionar à tela inicial".
 
+### 6. Google (fotos no Drive, Agenda e backup)
+
+Uma única conexão com a conta Google da clínica serve para tudo:
+- **Fotos** (aba Fotos, em *Histórico* na ficha): pasta **Pacientes Rose** no Drive, uma pasta por paciente (criada ao cadastrar) e, dentro dela, uma por dia de atendimento: `27-10-26-Nome do Paciente`. Visualizador em tela cheia, passa as fotos com o dedo, compara antes e depois, troca o tipo e apaga (vai para a lixeira do Drive). Cada foto é reduzida a 2400 px antes do envio (a Vercel aceita 4,5 MB por envio). O Supabase guarda só a referência.
+- **Agenda:** a agenda do painel é a fonte da verdade e fica igual ao Google Agenda (`rosecoutinho.estetica@gmail.com`). Cada horário vira um evento `ATENDIMENTO · Nome — Serviço` (só nome e serviço, sem telefone nem dados de saúde); remarcar atualiza, cancelar ou faltar remove, excluir no painel remove. Eventos criados direto no Google com **PACIENTE** ou **ATENDIMENTO** no título aparecem no dia, em "No Google Agenda"; os demais (pessoais) aparecem só como horário **ocupado**, sem título, e geram aviso ao agendar no mesmo horário. Se um evento do painel for apagado direto no Google, o painel não o recria.
+- **Backup:** seção 7.
+
+**Configuração (uma vez, logada na conta Google da clínica):**
+1. console.cloud.google.com > novo projeto **Painel Rose**. Não precisa de faturamento.
+2. *APIs e serviços > Biblioteca*: ative **Google Drive API** e **Google Calendar API**.
+3. *Google Auth Platform*: tipo **Externo**; nome "Painel Rose"; e-mail de suporte; em *Branding*: página inicial `https://painel.rosecoutinho.com.br`, política de privacidade `https://painel.rosecoutinho.com.br/privacidade.html`, termos `https://painel.rosecoutinho.com.br/termos.html`, domínio autorizado `rosecoutinho.com.br`.
+4. *Acesso a dados*: escopos `.../auth/drive.file` e `.../auth/calendar.events`.
+5. *Público*: adicione os dois e-mails como usuários de teste e depois **Publicar app** (Em produção). Sem isso a autorização expira a cada 7 dias. O app não é verificado pelo Google: no login clique em *Avançado > Acessar Painel Rose*. É normal para uso interno.
+6. *Clientes > Criar cliente*: **Aplicativo da Web**; URI de redirecionamento: `https://painel.rosecoutinho.com.br/api/google?action=callback`. Copie o ID e a chave secreta.
+7. **Vercel** (Environment Variables, sem prefixo `VITE_`, Sensitive): `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SUPABASE_SERVICE_ROLE_KEY` (Supabase > Project Settings > API Keys, a chave `service_role`/`secret`) e `CRON_SECRET` (texto longo aleatório, para o backup). Faça um novo deploy.
+8. **Supabase > Edge Functions > Secrets:** `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET` (os mesmos), para o contrato assinado ir ao Drive.
+9. No painel, **Agenda > Conectar com o Google**, com a conta da clínica.
+
+**Segurança:** o app só enxerga os arquivos que ele mesmo criou (`drive.file`), nunca o resto do Drive. A autorização do Google fica cifrada no banco e só o servidor a lê. Todas as chamadas exigem login com segundo fator. Ative a **verificação em duas etapas** na conta Google da clínica e não compartilhe as pastas Pacientes Rose e Backup: quem abrir o Drive direto vê o conteúdo sem passar pelo painel. Se mudar o nome do paciente, a pasta no Drive mantém o nome antigo.
+
+### 7. Backup automático no Drive
+
+Todo dia por volta das 3h (Brasília) o servidor copia **todas as tabelas** para um único arquivo `backup-painel-AAAA-MM-DD.json` na pasta **Backup Painel Rose Coutinho**. O arquivo novo é conferido e só então o anterior é apagado de vez: fica sempre **um** backup. As fotos já estão no Drive e entram só como referência; os tokens do Google ficam de fora. Em **Agenda** (rodapé) dá para ver o último e fazer um na hora.
+- Para ligar o automático: `CRON_SECRET` na Vercel (seção 6, passo 7). O agendamento está em `vercel.json`.
+- **Proteção:** se o banco tiver menos da metade dos registros do último backup bom, o anterior é **mantido** e o painel avisa. Depois de conferir, "Fazer backup agora" aceita o novo tamanho.
+- O arquivo é legível e tem dados de saúde: mesma sensibilidade da pasta Pacientes Rose.
+- **Restaurar:** `SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/restaurar.mjs backup.json` mostra o que faria; com `--executar` grava (regrava os registros do backup e não apaga o que existir só no banco).
+- Um backup por dia não ajuda se o problema só for notado depois de 24 h. O plano Pro do Supabase guarda 7 dias de backups próprios e complementa.
+
 ## Como o painel calcula
 - **Comparação justa:** dias 1 a N do mês atual contra dias 1 a N do mês anterior, nunca mês parcial contra mês cheio.
 - **Receita:** soma só atendimentos com valor informado. **Paciente novo:** primeira visita registrada no app (com a base antiga importada sem histórico, o número fica baixo até os atendimentos entrarem).
@@ -70,9 +99,9 @@ O painel continua 100% fechado. A assinatura acontece em **outra página** (`con
 5. Se o Drive falhar, nada é marcado como assinado e o link continua valendo; a paciente vê uma mensagem para tentar de novo.
 
 **Ligação com o Google Drive (necessária para assinar de verdade)**
-- Segredos da função (Supabase > Edge Functions > Secrets): `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET`.
-- Uma linha em `google_tokens` com o `refresh_token` da conta Google da clínica. A permissão (escopo) precisa deixar a função **criar arquivos em pastas que ela não criou**: use o escopo `https://www.googleapis.com/auth/drive`. O escopo `drive.file` só enxerga o que o próprio app criou e não serve se as pastas já existirem.
-- Pasta da paciente: se `pacientes.drive_folder_id` estiver vazio, a função cria a pasta com o nome da paciente e grava o id. Para criar dentro de uma pasta específica, grave o id dela em `config` com a chave `drive_pasta_raiz` (texto).
+- Use a **mesma conexão do painel** (seção 6): em **Agenda > Conectar com o Google**. O token fica cifrado em `google_tokens` e a função o abre com o segredo do Google (`token.js`).
+- Segredos da função (Supabase > Edge Functions > Secrets): `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET`, **os mesmos** da Vercel.
+- A permissão é a restrita (`drive.file`): o painel e a função enxergam as pastas que o painel criou. A pasta da paciente fica dentro de **Pacientes Rose**, a mesma das fotos (`config.drive_root`). Se `pacientes.drive_folder_id` estiver vazio, a função cria a pasta e grava o id.
 - Sem isso a página responde "não foi possível guardar agora" e nada é perdido.
 
 **Modelos:** ficam no banco (`modelos_documento`), não no código. Edite em **Documentos > Modelos**. Campos: `{{nome}} {{nascimento}} {{telefone}} {{cpf}} {{rg}} {{endereco}} {{cep}} {{data}} {{objeto}} {{valor_total}} {{pagamento}}` (painel) e `{{data_hora}}` (data e hora da assinatura). O que faltar na ficha, a paciente completa ao assinar.
@@ -144,7 +173,11 @@ src/style.css              identidade visual
 src/services.json          catálogo inicial (da planilha de preços)
 src/lib/cloud-core.js      sincronização com o Supabase (testada)
 src/lib/cloud.js           liga o Supabase pelas variáveis de ambiente
+src/google.js              fotos no Drive (visualizador), sincronia da agenda com o Google e backup (telas)
+api/                       funções do servidor (Vercel): Google, Drive, Agenda e backup
+scripts/restaurar.mjs      restaura o banco a partir de um backup
+supabase/functions/        assinatura de contratos (Edge Function)
 supabase/migrations/       banco completo
 public/                    ícones, manifest, service worker
-tests/                     testes da sincronização
+tests/                     testes da sincronização, dos contratos e das funções do Google (com Google simulado)
 ```
