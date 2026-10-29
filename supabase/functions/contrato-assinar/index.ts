@@ -2,9 +2,11 @@
    Nada do contrato assinado fica no banco: só a data, o código de verificação e o id do arquivo no Drive.
    Só marca como assinado DEPOIS que o Drive confirmou o arquivo; se o Drive falhar, o link continua valendo.
    Pública (sem login): quem protege é o token do link (43 caracteres aleatórios, uso único, 24 horas).
-   Precisa de: segredos GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET, e uma linha em google_tokens com o refresh_token da conta da clínica. */
+   Precisa de: segredos GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET (os mesmos do painel) e a conexão feita em Agenda > Conectar com o Google:
+   o token fica cifrado em google_tokens e é aberto por token.js. A permissão é a restrita (drive.file): o painel e esta função enxergam as pastas que o painel criou. */
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { montarPdf } from './pdf.js';
+import { abrirToken } from './token.js';
 
 const ORIGENS = (Deno.env.get('CONTRATO_ORIGENS') ?? 'https://contrato.rosecoutinho.com.br,http://localhost:5173').split(',');
 const CAMPOS = ['cpf', 'rg', 'endereco', 'cep', 'nascimento', 'telefone'];
@@ -21,15 +23,33 @@ async function tokenDoGoogle(sb: any): Promise<string> {
   const {data} = await sb.from('google_tokens').select('refresh_token').order('updated_at', {ascending: false}).limit(1).maybeSingle();
   if (!id || !segredo || !data) throw erro('drive_conexao');
   const r = await fetch('https://oauth2.googleapis.com/token', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-    body: new URLSearchParams({client_id: id, client_secret: segredo, refresh_token: data.refresh_token, grant_type: 'refresh_token'})});
+    body: new URLSearchParams({client_id: id, client_secret: segredo, refresh_token: await abrirToken(data.refresh_token, segredo), grant_type: 'refresh_token'})});
   if (!r.ok) throw erro('drive_conexao');
   return (await r.json()).access_token;
 }
 
+/* pasta raiz "Pacientes Rose": a mesma que o painel usa (config.drive_root). Se ainda não existe, procura ou cria. */
+async function pastaRaiz(sb: any, at: string): Promise<string | null> {
+  const H = {Authorization: `Bearer ${at}`, 'Content-Type': 'application/json'};
+  for (const chave of ['drive_root', 'drive_pasta_raiz']) {
+    const {data} = await sb.from('config').select('valor').eq('chave', chave).maybeSingle();
+    if (typeof data?.valor === 'string' && data.valor) return data.valor;
+  }
+  const q = encodeURIComponent("name='Pacientes Rose' and mimeType='application/vnd.google-apps.folder' and trashed=false");
+  const f = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&pageSize=1`, {headers: H});
+  let id = f.ok ? (await f.json()).files?.[0]?.id : null;
+  if (!id) {
+    const c = await fetch('https://www.googleapis.com/drive/v3/files?fields=id', {method: 'POST', headers: H, body: JSON.stringify({name: 'Pacientes Rose', mimeType: 'application/vnd.google-apps.folder'})});
+    if (!c.ok) throw erro('drive_pasta');
+    id = (await c.json()).id;
+  }
+  await sb.from('config').upsert({chave: 'drive_root', valor: id}, {onConflict: 'chave'});
+  return id;
+}
+
 async function pastaDaPaciente(sb: any, at: string, pac: {id: string; nome: string; drive_folder_id: string | null}): Promise<string> {
   if (pac.drive_folder_id) return pac.drive_folder_id;
-  const {data: cfg} = await sb.from('config').select('valor').eq('chave', 'drive_pasta_raiz').maybeSingle();
-  const raiz = typeof cfg?.valor === 'string' && cfg.valor ? cfg.valor : null;
+  const raiz = await pastaRaiz(sb, at);
   const r = await fetch('https://www.googleapis.com/drive/v3/files?fields=id', {method: 'POST', headers: {Authorization: `Bearer ${at}`, 'Content-Type': 'application/json'},
     body: JSON.stringify({name: pac.nome, mimeType: 'application/vnd.google-apps.folder', ...(raiz ? {parents: [raiz]} : {})})});
   if (!r.ok) throw erro('drive_pasta');
