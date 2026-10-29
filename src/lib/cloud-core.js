@@ -15,7 +15,7 @@ export function toRows(db){
     servicos: db.services.map((s, i) => ({id: s.id, categoria: s.cat, nome: s.nome, preco_pix: N(s.pix), preco_cartao: N(s.card), duracao_min: N(s.dur), retorno_dias: N(s.ret), pacotes: s.pacotes || [], ordem: i})),
     pacientes: db.patients.map(p => ({id: p.id, nome: p.nome, telefone: N(p.tel), nascimento: N(p.nasc), instagram: N(p.insta), origem: N(p.origem), observacoes: N(p.obs), consentimento_ok: !!(p.lgpd && p.lgpd.ok), consentimento_em: N(p.lgpd && p.lgpd.data), avaliacao: p.aval || {}, anamnese: p.anam || {}, ciclo: p.ciclo || {}, cpf: N(p.cpf), rg: N(p.rg), endereco: N(p.end), cep: N(p.cep), imagem_publicidade: N(p.img), imagem_publicidade_em: N(p.imgEm)})),
     atendimentos: db.patients.flatMap(p => p.atend.map(a => ({id: a.id, paciente_id: p.id, data: a.data, servico_id: known.has(a.servicoId) ? a.servicoId : null, regiao: N(a.regiao), produto: N(a.produto), lote: N(a.lote), sessao: N(a.sessao), valor: N(a.valor), evolucao: N(a.evolucao), retorno_em: N(a.retorno)}))),
-    agendamentos: (db.agenda || []).map(a => ({id: a.id, paciente_id: pats.has(a.pid) ? a.pid : null, servico_id: known.has(a.sid) ? a.sid : null, inicio: new Date(a.ini).toISOString(), fim: new Date(new Date(a.ini).getTime() + (a.dur || 30) * 60000).toISOString(), status: a.status, observacoes: N(a.obs), google_event_id: N(a.gid), remarcacoes: a.rem || []})),
+    agendamentos: (db.agenda || []).map(a => ({id: a.id, paciente_id: pats.has(a.pid) ? a.pid : null, servico_id: known.has(a.sid) ? a.sid : null, inicio: new Date(a.ini).toISOString(), fim: new Date(new Date(a.ini).getTime() + (a.dur || 30) * 60000).toISOString(), status: a.status, observacoes: N(a.obs), remarcacoes: a.rem || []})),
     pacotes_paciente: pk.map(k => ({id: k.id, paciente_id: k.pid, servico_id: known.has(k.sid) ? k.sid : null, sessoes_total: k.total, sessoes_usadas: k.usadas, valor_total: N(k.valor), valor_pago: k.parc.filter(x => x.pago).reduce((t, x) => t + Number(x.valor), 0), criado_em: k.criado, validade: N(k.validade)})),
     lancamentos: pk.flatMap(k => k.parc.map((x, i) => ({id: x.id, data: x.venc, tipo: 'entrada', categoria: 'Pacote', descricao: `Parcela ${i + 1}/${k.parc.length}`, valor: x.valor, forma_pagamento: N(k.forma), pago: !!x.pago, paciente_id: k.pid, atendimento_id: null, pacote_id: k.id, pago_em: N(x.pagoEm)}))),
     mensagens: (db.msgs || []).map(m => ({id: m.id, paciente_id: m.pid, tipo: m.tipo, chave: N(m.chave), texto: N(m.texto), enviado_em: m.em})),
@@ -28,7 +28,7 @@ export function fromRows(sv, pa, at, ms = [], tpl = {}, ag = [], pk = [], lc = [
   return {
     v: 1,
     services: sv.map(s => ({id: s.id, cat: s.categoria, nome: s.nome, pix: s.preco_pix, card: s.preco_cartao, dur: s.duracao_min, ret: s.retorno_dias, pacotes: s.pacotes || []})),
-    patients: pa.map(p => ({id: p.id, nome: p.nome, tel: p.telefone || '', nasc: p.nascimento || '', insta: p.instagram || '', origem: p.origem || '', obs: p.observacoes || '', lgpd: {ok: !!p.consentimento_ok, data: p.consentimento_em || ''}, aval: p.avaliacao || {}, anam: p.anamnese || {}, ...(p.ciclo && Object.keys(p.ciclo).length ? {ciclo: p.ciclo} : {}), ...opt({cpf: p.cpf, rg: p.rg, end: p.endereco, cep: p.cep, img: p.imagem_publicidade, imgEm: p.imagem_publicidade_em}), atend: byP.get(p.id) || []})),
+    patients: pa.map(p => ({id: p.id, nome: p.nome, tel: p.telefone || '', nasc: p.nascimento || '', insta: p.instagram || '', origem: p.origem || '', obs: p.observacoes || '', lgpd: {ok: !!p.consentimento_ok, data: p.consentimento_em || ''}, aval: p.avaliacao || {}, anam: p.anamnese || {}, ...(p.ciclo && Object.keys(p.ciclo).length ? {ciclo: p.ciclo} : {}), ...opt({cpf: p.cpf, rg: p.rg, end: p.endereco, cep: p.cep, img: p.imagem_publicidade, imgEm: p.imagem_publicidade_em}), atend: byP.get(p.id) || [], pasta: p.drive_folder_id || ''})),
     msgs: ms.map(m => ({id: m.id, pid: m.paciente_id, tipo: m.tipo, chave: m.chave || '', texto: m.texto || '', em: m.enviado_em})),
     tpl,
     pacotes: pk.map(k => { const ps = lc.filter(l => l.pacote_id === k.id).sort((a, b) => a.data.localeCompare(b.data) || (a.descricao || '').localeCompare(b.descricao || '', undefined, {numeric: true}));
@@ -107,6 +107,19 @@ export function createCloud(sb, {retryMs = 6000, debounceMs = 700} = {}){
     },
     async verifyCode(factorId, code){ const {error} = await sb.auth.mfa.challengeAndVerify({factorId, code: String(code).replace(/\s/g, '')}); if (error) throw error; },
     async factorId(){ const {data, error} = await sb.auth.mfa.listFactors(); if (error) throw error; const f = ((data && data.totp) || [])[0]; if (!f) throw new Error('sem fator verificado'); return f.id; },
+    /* chamadas às funções do servidor (/api), sempre com a sessão atual */
+    async api(path, opt = {}){
+      const {data} = await sb.auth.getSession();
+      const tk = data && data.session && data.session.access_token;
+      const r = await fetch(path, {...opt, headers: {...(opt.headers || {}), authorization: 'Bearer ' + tk}});
+      if (!r.ok) { const j = await r.json().catch(() => ({})); const e = new Error(j.erro || 'Falha na comunicação com o servidor.'); e.status = r.status; throw e; }
+      return opt.raw ? r : r.json();
+    },
+    async fotos(pacienteId){
+      const {data, error} = await sb.from('fotos').select('id,tipo,tirada_em,legenda,created_at').eq('paciente_id', pacienteId).like('arquivo_path', 'drive:%').order('tirada_em', {ascending: false}).order('created_at', {ascending: false});
+      if (error) throw error; return data;
+    },
+    async fotoMeta(id, patch){ const {error} = await sb.from('fotos').update(patch).eq('id', id); if (error) throw error; },
     onSignOut(cb){ sb.auth.onAuthStateChange(ev => { if (ev === 'SIGNED_OUT') cb(); }); },
     async load(seedServices){
       const [sv, pa, at, ms, cfg, ag, pk, lc] = await Promise.all([all('servicos', 'ordem'), all('pacientes', 'id'), all('atendimentos', 'id'), all('mensagens', 'enviado_em'), all('config', 'chave'), all('agendamentos', 'inicio'), all('pacotes_paciente', 'id'), all('lancamentos', 'data')]);
