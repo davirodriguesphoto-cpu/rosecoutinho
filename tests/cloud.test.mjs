@@ -8,7 +8,7 @@ function fakeSb(){
   const wait = () => new Promise(r => setTimeout(r, delayMs));
   const from = name => ({
     select: () => { const q = {order: () => q, range: async (a, b) => ({data: [...t[name].values()].slice(a, b + 1), error: null})}; return q; },
-    upsert: async (rows) => { rows = [].concat(rows); calls.push(['upsert', name, rows.length]); await wait(); if (failNext > 0) { failNext--; return {error: new Error('rede')}; } rows.forEach(r => t[name].set(r.id ?? r.chave, structuredClone(r))); return {error: null}; },
+    upsert: async (rows) => { rows = [].concat(rows); calls.push(['upsert', name, rows.length]); await wait(); if (failNext > 0) { failNext--; return {error: new Error('rede')}; } rows.forEach(r => { const k = r.id ?? r.chave; t[name].set(k, {...(t[name].get(k) || {}), ...structuredClone(r)}); }); /* como o PostgREST: colunas não enviadas ficam como estão */ return {error: null}; },
     delete: () => ({in: async (_c, ids) => { calls.push(['delete', name, ids.length]); await wait(); if (failNext > 0) { failNext--; return {error: new Error('rede')}; } ids.forEach(i => t[name].delete(i)); return {error: null}; }}),
   });
   return {from, t, calls, fail: n => failNext = n, delay: ms => delayMs = ms, auth: {}};
@@ -27,7 +27,7 @@ let n = 0; const ok = m => console.log(`ok ${++n} - ${m}`);
   db.patients.push({id: 'p1', nome: 'Ana', tel: '12 9', nasc: '1990-02-03', insta: '', origem: '', obs: '', lgpd: {ok: true, data: '2026-10-27'}, aval: {queixa: 'x'}, anam: {gestante: {r: 'n', d: ''}}, atend: [{id: 'a1', data: '2026-10-01', servicoId: 'sv1', regiao: 'abdômen', produto: '', lote: '', sessao: '1 de 4', valor: 50, evolucao: 'ok', retorno: '2026-10-08'}]});
   c.queue(db); await sleep(60);
   const c2 = createCloud(sb, opts); const back = await c2.load(seed);
-  assert.deepEqual(back.patients[0], db.patients[0]); assert.deepEqual(back.services.map(s => s.id), ['sv1', 'sv2']); ok('salvar e recarregar devolve exatamente os mesmos dados'); }
+  assert.deepEqual({...back.patients[0], pasta: undefined}, {...db.patients[0], pasta: undefined}); assert.equal(back.patients[0].pasta, ''); assert.deepEqual(back.services.map(s => s.id), ['sv1', 'sv2']); ok('salvar e recarregar devolve exatamente os mesmos dados'); }
 
 /* 3. só o que mudou é enviado */
 { const sb = fakeSb(), c = createCloud(sb, opts); const db = await c.load(seed);
@@ -108,7 +108,10 @@ function fakeAuth(st){
   db.patients.push({id: 'p1', nome: 'Ana', tel: '', nasc: '', insta: '', origem: '', obs: '', lgpd: {ok: false, data: ''}, aval: {}, anam: {}, atend: []});
   db.agenda = [{id: 'g1', pid: 'p1', sid: 'sv1', ini: '2026-10-30T14:30', dur: 45, status: 'agendado', obs: 'x', gid: 'ev123', rem: [{de: '2026-10-28T09:00', motivo: 'periodo', em: '2026-10-27T10:00'}]}];
   c.queue(db); await sleep(60);
+  /* o vínculo com o Google é do servidor: o painel não o envia (não pode apagá-lo por engano) */
+  const linha = sb.t.agendamentos.get('g1'); assert.ok(!('google_event_id' in linha)); linha.google_event_id = 'ev123';
   const back = await createCloud(sb, opts).load(seed); assert.deepEqual(back.agenda, db.agenda);
+  db.agenda[0].obs = 'y'; c.queue(db); await sleep(60); assert.equal(sb.t.agendamentos.get('g1').google_event_id, 'ev123');
   sb.calls.length = 0; db.patients = []; db.agenda = []; c.queue(db); await sleep(60);
   assert.deepEqual(sb.calls, [['delete', 'agendamentos', 1], ['delete', 'pacientes', 1]]); ok('agenda sincroniza em hora local e sai antes do paciente'); }
 
