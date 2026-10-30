@@ -201,20 +201,20 @@ export function createGoogle(h){
     sec.appendChild(box);
   }
   /* chamado ao fim de viewAgenda: card do Google (conectar / estado / backup) e eventos só do Google no dia */
-  async function afterAgenda(app){
+  async function afterAgenda(app, onde){
     if (!cloud) return;
-    let card = $('#g-card', app); if (!card) { card = document.createElement('section'); card.id = 'g-card'; card.className = 'card form g-card'; (app.lastElementChild || app).after ? app.appendChild(card) : app.appendChild(card); }
-    try { await getGs(); } catch (e) { card.innerHTML = `<p class="sub" style="margin:0">Não foi possível falar com o servidor do Google.<br><b>Motivo:</b> ${esc(e.message || 'sem resposta')}${e.status ? ' (código ' + e.status + ')' : ''}</p>`; return; }
+    let card = null;
+    if (onde) { card = $('#g-card', onde); if (!card) { card = document.createElement('section'); card.id = 'g-card'; card.className = 'card form g-card'; onde.appendChild(card); } }
+    try { await getGs(); } catch (e) { if (card) card.innerHTML = `<p class="sub" style="margin:0">Não foi possível falar com o servidor do Google.<br><b>Motivo:</b> ${esc(e.message || 'sem resposta')}${e.status ? ' (código ' + e.status + ')' : ''}</p>`; return; }
     if (!app.isConnected) return;
+    if (!card) { if (gs.conectado) { extras(app); if (Date.now() - ultima > 20000) syncAgenda(app); } return; }
     if (!gs.conectado) { card.innerHTML = connectCard('A agenda, as fotos e o backup').replace(/^<div class="card form">/, '').replace(/<\/div>$/, ''); wireConnect(card); return; }
     card.innerHTML = `<h2 style="font-size:16px;margin:0">Google conectado</h2>
       <p class="sub" id="g-st" style="margin:0">A agenda do painel e o Google Agenda ficam iguais.${gs.email ? ' Conta: ' + esc(gs.email) + '.' : ''}</p>
       <h2 style="font-size:16px;margin:8px 0 0">Backup</h2><p class="sub" id="bk-st" style="margin:0">Verificando…</p>
       <div class="actions"><button class="btn ghost small" id="bk-now" type="button">Fazer backup agora</button><button class="btn ghost small" id="g-off" type="button">Desconectar o Google</button></div>`;
-    arm($('#g-off', card), async () => { try { await cloud.api('/api/google?action=disconnect', { method: 'POST' }); gs = null; ge = { externos: [], ocupado: [] }; toast('Google desconectado'); afterAgenda(app); } catch (e) { toast(e.message); } });
+    arm($('#g-off', card), async () => { try { await cloud.api('/api/google?action=disconnect', { method: 'POST' }); gs = null; ge = { externos: [], ocupado: [] }; toast('Google desconectado'); afterAgenda(app, onde); } catch (e) { toast(e.message); } });
     backup(card);
-    extras(app);
-    if (Date.now() - ultima > 20000) syncAgenda(app);
   }
   const quando = iso => { const d = new Date(iso); return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} às ${hhmm(d)}`; };
   async function backup(root){

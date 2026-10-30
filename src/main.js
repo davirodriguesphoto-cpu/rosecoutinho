@@ -4,6 +4,8 @@ import { cloud } from './lib/cloud.js';
 import { createGoogle } from './google.js';
 import corpoSvg from './assets/mapa/corpo.svg?raw';
 import rostoSvg from './assets/mapa/rosto.svg?raw';
+import { CUSTOS_SEED } from './custos-seed.js';
+import { semear, horaFixa, totalFixo, unitario, custoDe, sugerido, margem } from './lib/custos.js';
 import { preencher as preencherContrato, faltando as faltandoContrato, novoToken, cpfValido } from './lib/contrato.js';
 
 const KEY = 'rc-clinica-v1';
@@ -80,12 +82,13 @@ function route(){
   G.retornoGoogle();
   const h = location.hash.slice(1) || 'agenda';
   const m = h.match(/^paciente-([\w-]+)$/);
-  const tab = m ? 'pacientes' : (['agenda','pacientes','servicos','lembretes','financeiro'].includes(h) ? h : 'agenda');
+  const tab = m ? 'pacientes' : (['agenda','pacientes','precos','despesas','lembretes','financeiro'].includes(h) ? h : h === 'servicos' ? 'precos' : 'agenda');
   $$('[data-tab]').forEach(a => a.dataset.tab === tab ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'));
   const app = $('#app'); app.dataset.v = m ? 'ficha' : tab;
   if (m) { const p = db.patients.find(x => x.id === m[1]); p ? viewPaciente(app, p) : (location.hash = '#pacientes'); }
   else if (tab === 'pacientes') viewPacientes(app);
-  else if (tab === 'servicos') viewServicos(app);
+  else if (tab === 'precos') viewPrecos(app);
+  else if (tab === 'despesas') viewDespesas(app);
   else if (tab === 'lembretes') viewLembretes(app);
   else if (tab === 'agenda') viewAgenda(app);
   else if (tab === 'financeiro') viewFinanceiro(app);
@@ -779,32 +782,114 @@ function modeloForm(m){
   if (m) arm($('#m-off'), async () => { try { await cloud.docs.salvarModelo({id: m.id, titulo: m.titulo, tipo: m.tipo, texto: m.texto, ativo: false}); modelosSheet(); } catch (e) { console.error(e); toast('Não foi possível desativar'); } });
 }
 
-/* ---------- serviços ---------- */
-function viewServicos(app){
-  app.innerHTML = `<div class="head"><div><h1>Serviços</h1><p class="sub">${db.services.length} no catálogo</p></div><button class="btn" id="s-new" type="button">Novo</button></div>
+/* ---------- ajustes (engrenagem): preços, despesas, Google e sair ---------- */
+const ICO_SETA = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+function abrirAjustes(){
+  const sair = !$('#logout').hidden;
+  openSheet('Ajustes', `<div class="menu"><div class="list">
+    <a class="item" href="#precos"><div class="grow"><div class="t">Tabela de preços</div><div class="m">Preço final e preço sugerido</div></div>${ICO_SETA}</a>
+    <a class="item" href="#despesas"><div class="grow"><div class="t">Despesas e produtos</div><div class="m">Aluguel, materiais e custo por hora</div></div>${ICO_SETA}</a></div>
+    ${cloud ? '<div id="a-google"></div>' : ''}
+    ${sair ? '<div class="actions"><button class="btn ghost" id="a-sair" type="button">Sair</button></div>' : ''}</div>`);
+  if (cloud) G.afterAgenda($('#app'), $('#a-google'));
+  const b = $('#a-sair'); if (b) b.onclick = () => $('#logout').click();
+}
+$('#ajustes').onclick = abrirAjustes;
+
+/* ---------- despesas e produtos / tabela de preços ---------- */
+function garanteCustos(){ if (!db.custos || !db.custos.itens || !db.custos.itens.length) { db.custos = semear(CUSTOS_SEED, db.services); save(); } }
+const brl = n => n == null || n === '' ? '—' : 'R$ ' + Number(n).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const numVal = id => { const v = val(id).replace(',', '.'); return v === '' || isNaN(Number(v)) ? null : Number(v); };
+const nv = v => Number(String(v ?? '').replace(',', '.')) || 0;
+const GRUPOS_VAR = ['Descartáveis e higiene', 'Agulhas e cânulas', 'Seringas e lâminas', 'Massagem e contato', 'Estética facial', 'Mesclas', 'Soro e anestésicos', 'Injetáveis e bioestimuladores', 'Fios de PDO', 'Aparelhos (por uso)', 'Outros'];
+const usosDe = id => Object.values(db.custos.rec).filter(r => r.i.some(x => x[0] === id)).length;
+
+function viewDespesas(app){
+  const c = db.custos, hf = horaFixa(c);
+  const fixas = c.itens.filter(i => i.tipo === 'fixa');
+  app.innerHTML = `<div class="head"><div><h1>Despesas e produtos</h1><p class="sub">Mudou o aluguel ou o preço de um material? Altere aqui e a tabela de preços recalcula sozinha.</p></div></div>
+    <section class="card form"><h2 style="font-size:16px;margin:0">Base de cálculo</h2>
+      <div class="two">${field('c-horas', 'Horas trabalhadas por mês', c.horasMes, 'text', 'inputmode="decimal"')}${field('c-mult', 'Preço sugerido = custo ×', c.mult, 'text', 'inputmode="decimal"')}</div>
+      <div class="two">${field('c-taxa', 'Taxa do cartão (%)', c.taxa, 'text', 'inputmode="decimal"')}<div class="f"><label>Custo da hora</label><p class="calc">${brl(hf)}</p></div></div></section>
+    <section><div class="subh"><h2>Despesas fixas</h2><button class="btn ghost small" id="c-nova-fixa" type="button">Nova</button></div>
+      <div class="list">${fixas.map(i => `<button class="item" data-i="${i.id}" type="button"><div class="grow"><div class="t">${esc(i.nome)}</div><div class="m">${brl(nv(i.valor) / (nv(c.horasMes) || 180))} por hora</div></div><div class="price">${brl(i.valor)}<small>por mês</small></div></button>`).join('')}
+        <div class="item static total"><div class="grow"><div class="t">Total fixo</div><div class="m">dividido por ${esc(c.horasMes)} horas</div></div><div class="price">${brl(totalFixo(c))}<small>${brl(hf)} por hora</small></div></div></div></section>
+    <section><div class="subh"><h2>Materiais e produtos</h2><button class="btn ghost small" id="c-novo" type="button">Novo</button></div>
+      <input class="search" id="q" type="search" placeholder="Buscar material" aria-label="Buscar material" autocomplete="off"><div id="clist"></div></section>`;
+  const set = (k, id, conv) => { const el = $('#' + id); el.onchange = () => { const n = numVal(id); if (n == null || n <= 0) { toast('Informe um número maior que zero'); route(); return; } c[k] = n; save(); route(); toast('Recalculado'); }; };
+  set('horasMes', 'c-horas'); set('mult', 'c-mult'); set('taxa', 'c-taxa');
+  const draw = () => {
+    const q = $('#q').value.trim().toLowerCase(), vars = c.itens.filter(i => i.tipo !== 'fixa');
+    const gr = [...GRUPOS_VAR, ...new Set(vars.map(i => i.grupo).filter(g => g && !GRUPOS_VAR.includes(g)))];
+    $('#clist').innerHTML = gr.map((g, n) => { const rows = vars.filter(i => (i.grupo || 'Outros') === g && (!q || i.nome.toLowerCase().includes(q))); if (!rows.length) return '';
+      return `<details class="group" ${q || n === 0 ? 'open' : ''}><summary>${esc(g)}<span>${rows.length}</span></summary><div class="list" style="border:0;border-radius:0">${rows.map(i => `<button class="item" data-i="${i.id}" type="button"><div class="grow"><div class="t">${esc(i.nome)}</div><div class="m">embalagem ${brl(i.valor)} · rende ${esc(i.rend)} ${nv(i.rend) === 1 ? 'uso' : 'usos'}${usosDe(i.id) ? ' · em ' + usosDe(i.id) + ' procedimento' + (usosDe(i.id) > 1 ? 's' : '') : ''}</div></div><div class="price">${brl(unitario(i))}<small>por uso</small></div></button>`).join('')}</div></details>`; }).join('') || '<div class="list"><div class="empty">Nenhum material encontrado.</div></div>';
+    bindItens();
+  };
+  const bindItens = () => $$('[data-i]', app).forEach(x => x.onclick = () => itemForm(c.itens.find(i => i.id === x.dataset.i)));
+  $('#q').oninput = draw; draw(); bindItens();
+  $('#c-nova-fixa').onclick = () => itemForm(null, 'fixa'); $('#c-novo').onclick = () => itemForm(null, 'var');
+}
+function itemForm(it, tipo){
+  const c = db.custos, e = !!it, fixa = e ? it.tipo === 'fixa' : tipo === 'fixa';
+  it = it || {nome: '', valor: '', rend: 1, grupo: GRUPOS_VAR[0]};
+  openSheet(e ? 'Editar' : fixa ? 'Nova despesa fixa' : 'Novo material', `<div class="form">${field('i-nome', 'Nome', it.nome)}
+    ${fixa ? field('i-valor', 'Valor por mês (R$)', it.valor, 'text', 'inputmode="decimal"') : `<div class="two">${field('i-valor', 'Valor da embalagem (R$)', it.valor, 'text', 'inputmode="decimal"')}${field('i-rend', 'Quantos usos rende', it.rend, 'text', 'inputmode="decimal"')}</div>${select('i-grupo', 'Grupo', GRUPOS_VAR, it.grupo || GRUPOS_VAR[0])}`}
+    <p class="sub" id="i-calc" style="margin:0"></p>
+    ${e && !fixa && usosDe(it.id) ? `<p class="sub" style="margin:0">Usado em ${usosDe(it.id)} procedimento(s): o custo deles muda ao salvar.</p>` : ''}
+    <div class="actions"><button class="btn" id="i-ok" type="button">Salvar</button>${e ? '<button class="btn danger" id="i-del" type="button">Excluir</button>' : ''}</div></div>`);
+  const calc = () => { const v = nv(val('i-valor')); $('#i-calc').textContent = fixa ? brl(v / (nv(c.horasMes) || 180)) + ' por hora trabalhada' : 'Cada uso custa ' + brl(v / (nv(val('i-rend')) || 1)); };
+  $$('#i-valor,#i-rend').forEach(x => x.oninput = calc); calc();
+  $('#i-ok').onclick = () => { const nome = val('i-nome'), valor = numVal('i-valor'); if (!nome) return toast('Informe o nome'); if (valor == null) return toast('Informe o valor');
+    const rend = fixa ? 1 : (numVal('i-rend') || 1); if (rend <= 0) return toast('Os usos precisam ser maiores que zero');
+    const n = {id: it.id || 'd' + uid().slice(0, 8), tipo: fixa ? 'fixa' : 'var', nome, valor, rend, ...(fixa ? {} : {grupo: val('i-grupo')})};
+    if (e) Object.assign(it, n); else c.itens.push(n); save(); closeSheet(); route(); toast('Salvo e recalculado'); };
+  if (e) arm($('#i-del'), () => { c.itens = c.itens.filter(x => x.id !== it.id); Object.values(c.rec).forEach(r => { r.i = r.i.filter(x => x[0] !== it.id); }); save(); closeSheet(); route(); });
+}
+
+function viewPrecos(app){
+  const c = db.custos;
+  app.innerHTML = `<div class="head"><div><h1>Tabela de preços</h1><p class="sub">O preço final é o que a Rose cobra. O sugerido é o custo × ${esc(c.mult)}, calculado nas despesas.</p></div><button class="btn" id="s-new" type="button">Novo</button></div>
     <input class="search" id="q" type="search" placeholder="Buscar serviço" aria-label="Buscar serviço" autocomplete="off"><div id="slist"></div>
-    <p class="sub">Duração e prazo de retorno são sugestões iniciais. Toque em um serviço para ajustar.</p>`;
+    <p class="sub">Toque em um serviço para ajustar o preço final, a duração e o que ele gasta de material.</p>`;
   const draw = () => {
     const q = $('#q').value.trim().toLowerCase();
-    $('#slist').innerHTML = CATS.map(c => { const rows = db.services.filter(s => s.cat === c && (!q || s.nome.toLowerCase().includes(q))); if (!rows.length) return '';
-      return `<details class="group" ${q || c === CATS[0] ? 'open' : ''}><summary>${esc(c)}<span>${rows.length}</span></summary><div class="list" style="border:0;border-radius:0">${rows.map(s => `<button class="item" data-s="${s.id}" type="button"><div class="grow"><div class="t">${esc(s.nome)}</div><div class="m">${s.dur ? s.dur + ' min' : ''}${s.ret ? ' · retorno em ' + s.ret + ' dias' : ''}</div>${s.pacotes && s.pacotes.length ? `<div class="pk">${s.pacotes.map(([n, t]) => n + ' sessões ' + money(t)).join(' · ')}</div>` : ''}</div><div class="price">${s.pix != null ? money(s.pix) : '<span class="pill">a definir</span>'}${s.card ? `<small>cartão ${money(s.card)}</small>` : ''}</div></button>`).join('')}</div></details>`; }).join('') || '<div class="list"><div class="empty">Nenhum serviço encontrado.</div></div>';
+    $('#slist').innerHTML = CATS.map(cat => { const rows = db.services.filter(s => s.cat === cat && (!q || s.nome.toLowerCase().includes(q))); if (!rows.length) return '';
+      return `<details class="group" ${q || cat === CATS[0] ? 'open' : ''}><summary>${esc(cat)}<span>${rows.length}</span></summary><div class="list" style="border:0;border-radius:0">${rows.map(s => {
+        const custo = custoDe(c, c.rec[s.id]), sug = sugerido(c, custo), mg = margem(custo, s.pix), baixo = s.pix != null && sug != null && Number(s.pix) < sug;
+        return `<button class="item" data-s="${s.id}" type="button"><div class="grow"><div class="t">${esc(s.nome)}</div><div class="m">${custo != null ? 'custo ' + brl(custo) + (mg != null ? ' · margem ' + Math.round(mg * 100) + '%' : '') : 'sem custo cadastrado'}</div>${s.pacotes && s.pacotes.length ? `<div class="pk">${s.pacotes.map(([n, t]) => n + ' sessões ' + money(t)).join(' · ')}</div>` : ''}</div><div class="price">${s.pix != null ? money(s.pix) : '<span class="pill">a definir</span>'}${sug != null ? `<small class="${baixo ? 'baixo' : ''}">sugerido ${money(sug)}</small>` : ''}</div></button>`; }).join('')}</div></details>`; }).join('') || '<div class="list"><div class="empty">Nenhum serviço encontrado.</div></div>';
     $$('[data-s]').forEach(x => x.onclick = () => serviceForm(svc(x.dataset.s)));
   };
   $('#q').oninput = draw; draw(); $('#s-new').onclick = () => serviceForm();
 }
 function serviceForm(s){
   const e = !!s; s = s || {nome: '', cat: CATS[0], pix: '', card: '', dur: 30, ret: 30, pacotes: []};
+  const rec = JSON.parse(JSON.stringify((e && db.custos.rec[s.id]) || {h: 0, i: []}));
   const pk = n => ((s.pacotes || []).find(x => x[0] === n) || [])[1] ?? '';
   openSheet(e ? 'Editar serviço' : 'Novo serviço', `<div class="form">${field('v-nome', 'Nome', s.nome)}${select('v-cat', 'Categoria', CATS, s.cat)}
     <div class="two">${field('v-pix', 'Preço Pix ou dinheiro (R$)', s.pix ?? '', 'text', 'inputmode="decimal"')}${field('v-card', 'Preço no cartão (R$)', s.card ?? '', 'text', 'inputmode="decimal"')}</div>
     <div class="two">${field('v-dur', 'Duração (min)', s.dur ?? '', 'text', 'inputmode="numeric"')}${field('v-ret', 'Retorno em (dias)', s.ret ?? '', 'text', 'inputmode="numeric"')}</div>
     <div class="two">${field('v-p4', 'Pacote 4 sessões (total R$)', pk(4), 'text', 'inputmode="decimal"')}${field('v-p8', 'Pacote 8 sessões (total R$)', pk(8), 'text', 'inputmode="decimal"')}</div>
+    <div class="custo" id="v-custo"></div>
+    <div class="two">${field('v-h', 'Horas gastas no atendimento', rec.h || '', 'text', 'inputmode="decimal"')}<div class="f"><label>&nbsp;</label><button class="btn ghost" id="v-usar" type="button">Usar preço sugerido</button></div></div>
+    <div id="v-rec"></div>
+    <div class="two">${select('v-add', 'Adicionar material', [['', 'Escolher…'], ...db.custos.itens.filter(i => i.tipo !== 'fixa').map(i => [i.id, i.nome])], '')}<div class="f"><label>&nbsp;</label><button class="btn ghost" id="v-addb" type="button">Adicionar</button></div></div>
     <div class="actions"><button class="btn" id="v-ok" type="button">Salvar</button>${e ? '<button class="btn danger" id="v-del" type="button">Excluir</button>' : ''}</div></div>`);
   const num = id => { const v = val(id).replace(',', '.'); return v === '' || isNaN(Number(v)) ? null : Number(v); };
+  const by = id => db.custos.itens.find(x => x.id === id);
+  const calc = () => { rec.h = num('v-h') || 0; const custo = custoDe(db.custos, rec), sug = sugerido(db.custos, custo), mg = margem(custo, num('v-pix'));
+    $('#v-custo').innerHTML = `<div><small>Custo</small><b>${brl(custo)}</b></div><div><small>Sugerido</small><b>${brl(sug)}</b></div><div><small>Margem</small><b>${mg == null ? '—' : Math.round(mg * 100) + '%'}</b></div>`; };
+  const drawRec = () => { $('#v-rec').innerHTML = rec.i.map(([id, q]) => { const it = by(id); return it ? `<div class="rr"><span>${esc(it.nome)}<small>${brl(unitario(it))} por uso</small></span><input type="text" inputmode="decimal" value="${esc(q)}" data-rq="${id}" aria-label="Quantidade de ${esc(it.nome)}"><button class="btn ghost small" data-rx="${id}" type="button" aria-label="Remover ${esc(it.nome)}">×</button></div>` : ''; }).join('');
+    $$('[data-rq]').forEach(x => x.oninput = () => { rec.i.find(r => r[0] === x.dataset.rq)[1] = nv(x.value); calc(); });
+    $$('[data-rx]').forEach(x => x.onclick = () => { rec.i = rec.i.filter(r => r[0] !== x.dataset.rx); drawRec(); calc(); }); };
+  $('#v-addb').onclick = () => { const id = val('v-add'); if (!id) return toast('Escolha um material'); const r = rec.i.find(x => x[0] === id); if (r) r[1] += 1; else rec.i.push([id, 1]); drawRec(); calc(); };
+  $('#v-usar').onclick = () => { const sug = sugerido(db.custos, custoDe(db.custos, rec)); if (sug == null || !sug) return toast('Informe as horas e os materiais primeiro'); $('#v-pix').value = sug; calc(); };
+  $('#v-h').oninput = calc; $('#v-pix').oninput = calc; drawRec(); calc();
   $('#v-ok').onclick = () => { const nome = val('v-nome'); if (!nome) return toast('Informe o nome');
     const pacotes = [[4, num('v-p4')], [8, num('v-p8')]].filter(x => x[1] != null);
     const n = {id: s.id || 's' + uid(), nome, cat: val('v-cat'), pix: num('v-pix'), card: num('v-card'), dur: num('v-dur'), ret: num('v-ret'), pacotes};
-    if (e) Object.assign(s, n); else db.services.push(n); save(); closeSheet(); route(); toast('Serviço salvo'); };
+    if (e) Object.assign(s, n); else db.services.push(n);
+    rec.h = num('v-h') || 0; if (rec.h || rec.i.length) db.custos.rec[n.id] = rec; else delete db.custos.rec[n.id];
+    save(); closeSheet(); route(); toast('Serviço salvo'); };
   if (e) arm($('#v-del'), () => { db.services = db.services.filter(x => x.id !== s.id); save(); closeSheet(); route(); });
 }
 
@@ -874,7 +959,7 @@ async function viewChallenge(){
 }
 async function startCloud(){
   chrome(true); $('#app').innerHTML = '<p class="sub">Carregando…</p>';
-  try { db = await cloud.load(SERVICES); armIdle(); route(); }
+  try { db = await cloud.load(SERVICES); garanteCustos(); armIdle(); route(); }
   catch (e) { console.error(e); $('#app').innerHTML = '<div class="card form"><p style="margin:0">Não foi possível carregar os dados. Verifique a conexão.</p><button class="btn" id="retry" type="button">Tentar de novo</button></div>'; $('#retry').onclick = startCloud; }
 }
 /* saída automática: computador esquecido aberto não expõe pacientes */
@@ -893,14 +978,14 @@ function viewConfig(){
   $('#app').innerHTML = '<div class="login card form"><h1 style="font-size:20px">Configuração pendente</h1><p style="margin:0">Faltam as variáveis do Supabase neste ambiente. Por segurança, o app não abre sem login. Veja o README, passo 3.</p></div>';
 }
 async function boot(){
-  if (!cloud) { if (!demoOk) return viewConfig(); db = localLoad() || seed(); db.msgs = db.msgs || []; db.tpl = db.tpl || {}; db.agenda = db.agenda || []; db.pacotes = db.pacotes || []; chrome(true); route(); return; }
+  if (!cloud) { if (!demoOk) return viewConfig(); db = localLoad() || seed(); db.msgs = db.msgs || []; db.tpl = db.tpl || {}; db.agenda = db.agenda || []; db.pacotes = db.pacotes || []; garanteCustos(); chrome(true); route(); return; }
   cloud.onStatus(setSync); cloud.onSignOut(() => location.reload());
   $('#logout').onclick = async () => { await cloud.signOut(); location.reload(); };
   gate();
   document.addEventListener('visibilitychange', async () => { /* traz mudanças feitas em outro aparelho */
     if (document.visibilityState !== 'visible' || !cloud.ready || cloud.pending || Date.now() - cloud.loadedAt < 60000) return;
     if (!$('#sheet').hidden || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
-    try { db = await cloud.load(SERVICES); route(); } catch (e) {}
+    try { db = await cloud.load(SERVICES); garanteCustos(); route(); } catch (e) {}
   });
   window.addEventListener('beforeunload', e => { if (cloud.pending) { e.preventDefault(); e.returnValue = ''; } });
 }
