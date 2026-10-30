@@ -104,7 +104,7 @@ const TPL_PADRAO = {
   aniversario: 'Oi, {nome}! Passando para te desejar um feliz aniversário! Que o seu novo ciclo seja lindo e cheio de saúde. Um beijo da Rose Coutinho.',
   manutencao: 'Oi, {nome}! Está chegando a hora do seu retorno ({servico}). Quer que eu veja um horário pra você?',
   sumida: 'Oi, {nome}! Tudo bem? Faz um tempinho que não te vejo por aqui na Rose Coutinho. Como você está? Posso ver um horário pra você essa semana?',
-  procedimento: 'Oi, {nome}! Passando para lembrar do seu horário amanhã, {data} às {hora}: {servico}. Posso confirmar?',
+  procedimento: 'Oi {nome}, {saudacao}! Tudo bem? 🥰\n\nPassando para confirmar seu horário amanhã, {data} ({semana}) às {hora}h.\n\nEstá tudo certinho para você?\n\nTe aguardo amanhã! ❤️',
   pagamento: 'Oi, {nome}! Lembrando que a parcela de {valor} do seu plano ({servico}) vence em {data}. Qualquer dúvida é só me chamar.',
   pagamento_atraso: 'Oi, {nome}! Notei que a parcela de {valor} do seu plano ({servico}), com vencimento em {data}, ainda está em aberto. Posso te ajudar com alguma dúvida?',
   contrato: 'Oi, {nome}! Segue o link para você ler e assinar o seu contrato com a Rose Coutinho: {link}',
@@ -117,7 +117,7 @@ const monthAdd = (key, n) => { const [y, m] = key.split('-').map(Number); const 
 const money0 = n => 'R$ ' + Math.round(n).toLocaleString('pt-BR');
 const short = n => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace('.', ',') + 'k' : String(Math.round(n));
 const firstName = n => n.trim().split(/\s+/)[0];
-const msgText = (p, tpl, x = {}) => tpl.replace('{nome}', firstName(p.nome)).replace('{servico}', x.servico || 'procedimento').replace('{data}', x.data ? fmtD(x.data).slice(0, 5) : '').replace('{hora}', x.hora || '').replace('{valor}', x.valor || '').replace('{link}', x.link || '');
+const msgText = (p, tpl, x = {}) => tpl.replace('{nome}', firstName(p.nome)).replace('{servico}', x.servico || 'procedimento').replace('{data}', x.data ? fmtD(x.data).slice(0, 5) : '').replace('{hora}', x.hora || '').replace('{valor}', x.valor || '').replace('{link}', x.link || '').replace('{saudacao}', saudacao().toLowerCase()).replace('{semana}', x.data ? ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'][parse(x.data).getDay()] : '');
 function waLink(p, tpl, x){
   const d = (p.tel || '').replace(/\D/g, ''); if (d.length < 10) return '';
   const num = d.length >= 12 && d.startsWith('55') ? d : '55' + d;
@@ -495,7 +495,7 @@ function viewLembretes(app){
 }
 function registrarEnvio(pid, tipo, chave, texto){ const id = uid(); db.msgs.push({id, pid, tipo, chave, texto, em: new Date().toISOString()}); save(); return id; }
 function tplForm(){
-  openSheet('Mensagens do WhatsApp', `<div class="form"><p class="sub" style="margin:0">Use {nome}, {servico}, {data}, {hora}, {valor} e {link}.</p>
+  openSheet('Mensagens do WhatsApp', `<div class="form"><p class="sub" style="margin:0">Use {nome}, {saudacao}, {servico}, {data}, {semana}, {hora}, {valor} e {link}.</p>
     ${MSG_ORDEM.map(k => area('t-' + k, TIPO_NOME[k], tplOf(k))).join('')}
     <div class="actions"><button class="btn" id="t-ok" type="button">Salvar</button><button class="btn ghost" id="t-rst" type="button">Voltar ao padrão</button></div></div>`);
   $('#t-ok').onclick = () => { const tpl = {}; MSG_ORDEM.forEach(k => { const v = val('t-' + k); if (v && v !== TPL_PADRAO[k]) tpl[k] = v; }); db.tpl = tpl; save(); closeSheet(); route(); toast('Mensagens salvas'); };
