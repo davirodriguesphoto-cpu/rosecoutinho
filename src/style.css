@@ -292,9 +292,6 @@ body::before{position:fixed;inset:0 0 auto;height:calc(env(safe-area-inset-top,0
 .ag-main:hover{background:color-mix(in srgb,var(--tint) 45%,transparent)}
 .ag-acao{flex:1 1 100%;padding:0 14px 12px 92px}
 .ag-acao .btn .ico{width:16px;height:16px;margin-right:6px}
-.faixa{display:flex;align-items:center;gap:10px;width:100%;padding:11px 16px;border-radius:999px;border:1px solid var(--glassb);background:var(--glass2);color:var(--link);font-weight:700;cursor:pointer;box-shadow:var(--glassh)}
-.faixa .ico{width:18px;height:18px}
-.faixa>span:nth-child(2){flex:1;text-align:left}
 
 /* ficha: contexto, abas agrupadas e Dados em leitura */
 .ctx{display:flex;flex-wrap:wrap;gap:4px 16px;margin:0;font-size:13.5px;color:var(--muted)}

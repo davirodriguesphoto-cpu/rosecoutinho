@@ -557,7 +557,12 @@ function viewAgenda(app){
   const resto = doDia.filter(a => !destaque || a.id !== destaque.id);
   const depois = db.agenda.filter(a => a.status !== 'cancelado' && agDia(a.ini) > agSel).sort((a, b) => a.ini.localeCompare(b.ini))[0];
   const resumo = ativos.length ? ativos.length + (ativos.length === 1 ? ' horário' : ' horários') + (agSel === t && destaque ? ' · próximo às ' + agHora(destaque.ini) : '') : 'Nenhum horário marcado';
-  const paraLembrar = db.agenda.filter(a => agLembravel(a) && !agLembrado(a)).length;
+  const deAmanha = db.agenda.filter(a => (a.status === 'agendado' || a.status === 'confirmado') && agDia(a.ini) === amanha).sort((a, b) => a.ini.localeCompare(b.ini));
+  const paraLembrar = deAmanha.filter(a => agLembravel(a) && !agLembrado(a)).length;
+  const amanhaHtml = agSel === amanha ? '' : `<section><div class="subh"><div><h2 style="margin:0">Amanhã</h2><p class="sub" style="margin:2px 0 0">${deAmanha.length ? deAmanha.length + (deAmanha.length === 1 ? ' horário' : ' horários') + (paraLembrar ? ' · ' + paraLembrar + ' para lembrar' : ' · lembretes em dia') : 'Nenhum horário marcado'}</p></div></div>
+    ${deAmanha.length ? `<div class="list">${deAmanha.map(a => { const p = pacDe(a.pid), s = svc(a.sid);
+      const acao = agLembravel(a) ? (agLembrado(a) ? '<span class="pill">Lembrete enviado</span>' : `<a class="btn small" data-lembrar="${a.id}" href="${waLink(p, tplOf('procedimento'), {servico: s && s.nome, data: agDia(a.ini), hora: agHora(a.ini)})}" target="_blank" rel="noopener">${ICO_BALAO}WhatsApp</a>`) : '<span class="pill">sem telefone</span>';
+      return `<div class="item static"><div class="hr">${agHora(a.ini)}<small>até ${agFimHora(a)}</small></div><div class="grow"><span class="t">${esc(p ? p.nome : 'Paciente removida')}</span><div class="m">${esc(s ? s.nome : 'Sem serviço')}</div></div>${acao}</div>`; }).join('')}</div>` : ''}</section>`;
   const faltam = a => { const m = Math.round((agMs(a.ini) - Date.now()) / 60000); return m <= 0 ? 'agora' : m < 60 ? 'daqui a ' + m + ' min' : 'daqui a ' + Math.floor(m / 60) + 'h' + (m % 60 ? pad(m % 60) : ''); };
   const botaoDet = a => { const o = agAberto.has(a.id); return `<button class="btn ghost small" data-tg="${a.id}" type="button" aria-expanded="${o}">${o ? ICO_MENOS : ICO_MAIS}Detalhes</button>`; };
   const linha = a => { const p = pacDe(a.pid), s = svc(a.sid), rem = (a.rem || []).length, off = a.status === 'cancelado' || a.status === 'faltou', o = agAberto.has(a.id);
@@ -569,7 +574,7 @@ function viewAgenda(app){
       <div class="nm">${esc(p ? p.nome : 'Paciente removida')}</div><div class="sv">${esc(s ? s.nome : 'Sem serviço')}${rem ? ' · remarcado' + (rem > 1 ? ' ' + rem + 'x' : '') : ''}</div>
       <div class="actions" style="margin-top:10px">${botaoDet(a)}<span class="pill ${a.status === 'agendado' ? 'soon' : ''}">${STATUS_AG[a.status]}</span></div>${o ? `<div class="ag-det solto">${agFatos(a)}</div>` : ''}</section>`; })() : '';
   const vazio = `<div class="empty">Dia livre.<div class="actions" style="justify-content:center;margin-top:12px"><button class="btn small" id="ag-vazio" type="button">Agendar neste dia</button>${depois ? `<button class="btn ghost small" id="ag-depois" type="button">Próximo: ${esc(nomeDia(agDia(depois.ini)).toLowerCase())}</button>` : ''}</div></div>`;
-  const nL = lembretesData().filter(x => !x.sent).length, dh = new Date();
+  const dh = new Date();
   const agoraIso = t + 'T' + agora, prox = db.agenda.filter(a => a.status !== 'cancelado' && a.ini >= agoraIso).sort((a, b) => a.ini.localeCompare(b.ini)).slice(0, 6);
   const rotDia = d => d === t ? 'hoje' : d === amanha ? 'amanhã' : DIAS_SEM[(parse(d).getDay() + 6) % 7] + ', ' + +d.slice(8);
   const proximosHtml = prox.length ? `<section class="so-largo"><h2>Próximos horários</h2><div class="list">${prox.map(a => { const p = pacDe(a.pid), s = svc(a.sid);
@@ -588,10 +593,9 @@ function viewAgenda(app){
       <button class="seta so-md" id="ag-next" type="button" aria-label="Próxima semana">${SETA_D}</button>
       <button class="calbtn" id="ag-cal" type="button" aria-expanded="${agCal}" aria-label="${agCal ? 'Fechar o calendário' : 'Abrir o calendário do mês'}">${ICO_CAL}</button></div>
     ${agCal ? calHtml() : ''}
-    ${paraLembrar && agSel !== amanha ? `<button class="faixa" id="ag-amanha" type="button">${ICO_BALAO}<span>Amanhã: lembrar ${paraLembrar} ${paraLembrar === 1 ? 'paciente' : 'pacientes'}</span><span class="pill soon">${paraLembrar}</span></button>` : ''}
     <section><div class="subh"><div><h2 style="margin:0">${esc(agSel === t ? 'Hoje' : nomeDia(agSel))}</h2><p class="sub" style="margin:2px 0 0">${resumo}</p></div>${agSel !== t ? '<button class="btn ghost small" id="ag-hoje" type="button">Hoje</button>' : ''}</div>
-      ${heroHtml}${doDia.length ? (resto.length ? `<div class="list">${resto.map(linha).join('')}</div>` : '') : `<div class="list">${vazio}</div>`}</section></div>
-    <aside class="ag-side"><div class="list"><a class="item" href="#lembretes"><div class="avatar">${ICO_SINO}</div><div class="grow"><span class="t">${nL ? nL + (nL === 1 ? ' lembrete para enviar' : ' lembretes para enviar') : 'Lembretes em dia'}</span><div class="m">${nL ? 'Mensagens prontas para o WhatsApp' : 'Nada para enviar agora'}</div></div>${nL ? `<span class="pill soon">${nL}</span>` : ''}</a></div>${proximosHtml}</aside>`;
+      ${heroHtml}${doDia.length ? (resto.length ? `<div class="list">${resto.map(linha).join('')}</div>` : '') : `<div class="list">${vazio}</div>`}</section>${amanhaHtml}</div>
+    <aside class="ag-side">${proximosHtml}</aside>`;
   const vai = d => { agSel = d; if (agCal) agMes = d.slice(0, 7); viewAgenda(app); };
   $$('.dia', app).forEach(b => b.onclick = () => { if (!b._arrastou) vai(b.dataset.d); });
   /* deslizar a semana de lado troca de semana (celular e mouse) */
@@ -607,7 +611,6 @@ function viewAgenda(app){
     $('#cal-novo').onclick = () => agNovo(null, agSel); $('#cal-hoje').onclick = () => { agMes = t.slice(0, 7); vai(t); };
   }
   const hoje = $('#ag-hoje'); if (hoje) hoje.onclick = () => vai(t);
-  const am = $('#ag-amanha'); if (am) am.onclick = () => vai(amanha);
   const dep = $('#ag-depois'); if (dep) dep.onclick = () => vai(agDia(depois.ini));
   $$('[data-pd]', app).forEach(b => b.onclick = () => vai(b.dataset.pd));
   const vz = $('#ag-vazio'); if (vz) vz.onclick = () => agNovo(null, agSel);
