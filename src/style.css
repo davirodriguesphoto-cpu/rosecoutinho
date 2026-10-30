@@ -628,3 +628,4 @@ body.kb .panel{padding-bottom:20px}
 .orc-canal .two{grid-template-columns:1fr 1fr;gap:12px}
 .orc-canal .sub{margin-top:2px}
 .orc-canal .two{align-items:end}
+.orc-raiz{display:flex;flex-direction:column;gap:22px}

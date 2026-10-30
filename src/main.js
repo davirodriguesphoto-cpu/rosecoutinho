@@ -795,7 +795,7 @@ function tabOrc(b, p){
   garanteOrc();
   const vs = versoesDe(db.orc, p.id);
   const refaz = (salvar = true) => { if (salvar) { vs[orcSel].em = new Date().toISOString(); save(); } tabOrc(b, p); };
-  b.innerHTML = `<div class="seg" role="group" aria-label="Etapa" style="align-self:flex-start"><button type="button" data-fase="montar" aria-pressed="${orcFase === 'montar'}">1 · Montar tudo</button><button type="button" data-fase="conferir" aria-pressed="${orcFase === 'conferir'}">2 · Conferir tudo</button></div><div id="orc-fase" class="orc-fase"></div>`;
+  b.innerHTML = `<div class="orc-raiz"><div class="seg" role="group" aria-label="Etapa" style="align-self:flex-start"><button type="button" data-fase="montar" aria-pressed="${orcFase === 'montar'}">1 · Montar tudo</button><button type="button" data-fase="conferir" aria-pressed="${orcFase === 'conferir'}">2 · Conferir tudo</button></div><div id="orc-fase" class="orc-fase"></div></div>`;
   $$('[data-fase]', b).forEach(x => x.onclick = () => { orcFase = x.dataset.fase; refaz(false); });
   (orcFase === 'montar' ? orcMontar : orcConferir)($('#orc-fase', b), p, vs, refaz);
 }
