@@ -18,12 +18,15 @@ const ok = r => { if (r.error) throw new Error(r.error.message); return r.data; 
 
 const existentes = new Set(ok(await sb.from('pacientes').select('nome')).map(p => chave(p.nome)));
 const novos = docs.filter(d => !existentes.has(chave(d.nome)));
-const vistos = new Set(), unicos = novos.filter(d => !vistos.has(chave(d.nome)) && vistos.add(chave(d.nome)));
+/* fichas com o mesmo nome (mesma pessoa em mais de um arquivo) viram uma paciente só, com tudo junto */
+const grupos = new Map(), SEP = String.fromCharCode(10, 10) + '---' + String.fromCharCode(10, 10);
+for (const d of novos) { const k = chave(d.nome); const g = grupos.get(k); if (!g) grupos.set(k, { ...d, atendimentos: [...d.atendimentos] }); else { g.ficha = [g.ficha, d.ficha].filter(Boolean).join(SEP); g.atendimentos.push(...d.atendimentos); g.nascimento = g.nascimento || d.nascimento; g.telefone = g.telefone || d.telefone; } }
+const unicos = [...grupos.values()].map(g => ({ ...g, atendimentos: g.atendimentos.sort((x, y) => x.data.localeCompare(y.data)) }));
 const pacientes = unicos.map(d => ({ id: crypto.randomUUID(), nome: d.nome, nascimento: d.nascimento, telefone: d.telefone, origem: 'Ficha em papel', observacoes: d.ficha || null }));
 const porNome = new Map(unicos.map((d, i) => [chave(d.nome), pacientes[i].id]));
 const atendimentos = unicos.flatMap(d => d.atendimentos.map(a => ({ id: crypto.randomUUID(), paciente_id: porNome.get(chave(d.nome)), data: a.data, evolucao: a.evolucao, produto: a.produto, lote: a.lote })));
 
-console.log(`${docs.length} fichas lidas; ${docs.length - novos.length} já existiam; ${novos.length - unicos.length} nomes repetidos no lote.`);
+console.log(`${docs.length} fichas lidas; ${docs.length - novos.length} já existiam; ${novos.length - unicos.length} fichas juntadas a outra do mesmo nome.`);
 console.log(`A gravar: ${pacientes.length} pacientes e ${atendimentos.length} atendimentos.`);
 if (!gravar) { console.log('Simulação. Nada foi gravado. Rode de novo com --gravar.'); process.exit(0); }
 
