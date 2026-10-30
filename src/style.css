@@ -608,3 +608,8 @@ body{overflow-x:visible}
 .gaveta summary small.n{background:var(--btn);color:var(--btn-fg);border-radius:99px;padding:1px 10px;font-weight:700;font-size:12px;line-height:20px}
 .lem-gavetas .gaveta>div{padding:0 10px 12px}
 .lem-gavetas .gaveta .list{border:0;background:none;box-shadow:none}
+
+/* teclado aberto: a folha ocupa só a área visível acima dele (--vvh/--vvt vêm do visualViewport) */
+#sheet{inset:auto;left:0;right:0;top:var(--vvt,0px);height:var(--vvh,100%)}
+body.kb .tabs{display:none}
+body.kb .panel{padding-bottom:20px}

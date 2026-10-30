@@ -65,6 +65,11 @@ function closeSheet(){ $('#sheet').hidden = true; document.body.classList.remove
 $('#sheet-x').onclick = closeSheet;
 $('#sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeSheet(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#sheet').hidden) closeSheet(); });
+/* teclado do celular: a folha acompanha a área realmente visível (visualViewport), o campo tocado rola para o meio e a barra de baixo some enquanto o teclado está aberto */
+const vv = window.visualViewport;
+if (vv) { const ajusta = () => { const r = document.documentElement.style; r.setProperty('--vvh', vv.height + 'px'); r.setProperty('--vvt', vv.offsetTop + 'px'); document.body.classList.toggle('kb', window.innerHeight - vv.height > 120); };
+  vv.addEventListener('resize', ajusta); vv.addEventListener('scroll', ajusta); ajusta(); }
+document.addEventListener('focusin', e => { const t = e.target; if (/INPUT|TEXTAREA|SELECT/.test(t.tagName) && !/checkbox|radio|hidden|file/.test(t.type)) setTimeout(() => t.scrollIntoView({block: 'center', behavior: 'smooth'}), 350); });
 function arm(btn, fn){ /* confirmação em dois toques, sem diálogo do navegador */
   btn.onclick = () => { if (btn.dataset.armed) return fn(); btn.dataset.armed = 1; btn.classList.add('armed'); btn.textContent = 'Toque de novo para confirmar'; setTimeout(() => { delete btn.dataset.armed; btn.classList.remove('armed'); btn.textContent = btn.dataset.label; }, 3500); };
   btn.dataset.label = btn.textContent;
