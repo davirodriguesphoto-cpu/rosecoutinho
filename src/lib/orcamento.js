@@ -1,0 +1,59 @@
+/* Orçamentos: até 3 versões por paciente, cada uma com procedimentos, valor no Pix/dinheiro, no link de pagamento (Stone) e na maquininha (PagSeguro).
+   db.orc = {taxas: {stone: {[parcelas]: %}, pag: {...}}, por: {[pacienteId]: [versão, versão, versão]}}
+   versão = {itens: [{sid, nome, ses, pix}], pix (total digitado ou null), entrada, stone: {par, total}, pag: {par, total}, fechado}  (total null = calculado) */
+
+const num = v => { const n = Number(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : 0; };
+const r2 = n => Math.round(n * 100) / 100;
+export const CANAIS = [['pix', 'Pix ou dinheiro'], ['stone', 'Link de pagamento (Stone)'], ['pag', 'Maquininha (PagSeguro)']];
+/* taxas padrão (%): Stone 2,99 à vista e 3,49 de 2x a 18x; PagSeguro 4,99 à vista e 5,59 de 2x a 12x. A Rose ajusta em Ajustes. */
+const faixa = (de, ate, t) => Object.fromEntries(Array.from({length: ate - de + 1}, (_, i) => [de + i, t]));
+export const vazio = () => ({taxas: {stone: {1: 2.99, ...faixa(2, 18, 3.49)}, pag: {1: 4.99, ...faixa(2, 12, 5.59)}}, por: {}});
+export const novaVersao = () => ({itens: [], pix: null, entrada: 0, stone: {par: 1, total: null}, pag: {par: 1, total: null}, fechado: ''});
+export const versoesDe = (orc, pid) => { const por = orc.por[pid] || (orc.por[pid] = []); while (por.length < 3) por.push(novaVersao()); return por; };
+
+/* preço Pix da linha: o do pacote do catálogo com as mesmas sessões, senão sessões × preço da sessão */
+export const linhaPix = (s, ses) => { const o = ((s && s.pacotes) || []).find(x => num(x[0]) === num(ses)); return r2(o ? num(o[1]) : num(s && s.pix) * num(ses)); };
+export const somaPix = v => r2(v.itens.reduce((t, i) => t + num(i.pix), 0));
+/* o total no Pix é o digitado na versão; sem ele, a soma das linhas */
+export const totalPix = v => v.pix != null && v.pix !== '' ? r2(num(v.pix)) : somaPix(v);
+export const nomeItem = (it, services) => it.nome || ((services.find(x => x.id === it.sid) || {}).nome) || 'procedimento';
+/* cartão: valor digitado; senão o Pix dividido por (1 - taxa), para a clínica receber o mesmo que no Pix depois da taxa; senão a soma dos preços de cartão da tabela (ou Pix) */
+export function totalCanal(v, canal, orc, services){
+  if (canal === 'pix') return totalPix(v);
+  const c = v[canal]; if (c.total != null && c.total !== '') return r2(num(c.total));
+  const tx = orc.taxas[canal] && orc.taxas[canal][c.par];
+  if (tx != null && tx !== '') return Math.round(totalPix(v) / (1 - num(tx) / 100));
+  return Math.round(v.itens.reduce((t, i) => { const s = services.find(x => x.id === i.sid); return t + (s && s.card != null && s.card !== '' ? num(s.card) * num(i.ses) : num(i.pix)); }, 0));
+}
+export const porParcela = (total, entrada, par) => r2(Math.max(0, total - num(entrada)) / (Math.max(1, Math.floor(num(par))) || 1));
+
+const brl = n => 'R$ ' + Number(n).toLocaleString('pt-BR', {minimumFractionDigits: Number.isInteger(Number(n)) ? 0 : 2, maximumFractionDigits: 2});
+const val2 = n => Number(n).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+/* mesmas palavras que a Rose usa hoje no WhatsApp: "R$ 510 dinheiro ou pix", "3x 182,82 ( via link )" */
+function linhasValor(v, orc, services){
+  const e = num(v.entrada), pix = totalPix(v);
+  const out = ['R$ ' + val2(pix).replace(',00', '') + ' dinheiro ou pix' + (e ? ' (entrada de ' + brl(e) + ')' : '')];
+  [['stone', 'via link'], ['pag', 'na maquininha']].forEach(([k, onde]) => { const par = Math.max(1, Math.floor(num(v[k].par))); out.push(par + 'x ' + val2(porParcela(totalCanal(v, k, orc, services), e, par)) + ' ( ' + onde + ' )'); });
+  return out;
+}
+/* um texto só com todas as versões preenchidas */
+export function mensagem(nome, versoes, orc, services){
+  const blocos = versoes.map((v, i) => ({v, i})).filter(x => x.v.itens.length).map(({v, i}) =>
+    (i + 1) + '° opção\n\n' + v.itens.map(it => num(it.ses) + ' ' + nomeItem(it, services).toLowerCase()).join('\n') + '\n\n' + linhasValor(v, orc, services).join('\n'));
+  return blocos.length ? 'Oi, ' + nome + '! Tudo bem?\n\nEnviando as opções do próximo plano.\n\n' + blocos.join('\n\n') : '';
+}
+
+/* fecha a versão: um pacote por procedimento, com valor e entrada divididos na proporção do preço Pix de cada um; a entrada entra como parcela já paga */
+export function fechar(v, canal, par, entrada, orc, services, {pid, hoje, uid, addMonths, addDays}){
+  const total = totalCanal(v, canal, orc, services), base = somaPix(v), e = Math.min(num(entrada), total), n = Math.max(1, Math.floor(num(par)) || 1);
+  let restoT = total, restoE = e;
+  return v.itens.map((it, k) => {
+    const ultimo = k === v.itens.length - 1, f = base > 0 ? num(it.pix) / base : 1 / v.itens.length;
+    const valor = ultimo ? r2(restoT) : r2(total * f), ent = ultimo ? r2(restoE) : r2(e * f); restoT -= valor; restoE -= ent;
+    const falta = r2(valor - ent), primeiro = ent > 0 ? addMonths(hoje, 1) : hoje, parc = [];
+    if (ent > 0) parc.push({id: uid(), venc: hoje, valor: ent, pago: true, pagoEm: hoje});
+    if (falta > 0) { const cents = Math.round(falta * 100), cada = Math.floor(cents / n);
+      for (let i = 0; i < n; i++) parc.push({id: uid(), venc: addMonths(primeiro, i), valor: (i === n - 1 ? cents - cada * (n - 1) : cada) / 100, pago: false, pagoEm: ''}); }
+    return {id: uid(), pid, sid: it.sid || '', total: Math.max(1, Math.floor(num(it.ses)) || 1), usadas: 0, valor, criado: hoje, validade: addDays(hoje, 180), forma: canal === 'pix' ? 'Pix' : 'Cartão', parc};
+  });
+}

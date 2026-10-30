@@ -22,7 +22,7 @@ export function toRows(db){
   };
 }
 
-export function fromRows(sv, pa, at, ms = [], tpl = {}, ag = [], pk = [], lc = [], custos = {}){
+export function fromRows(sv, pa, at, ms = [], tpl = {}, ag = [], pk = [], lc = [], custos = {}, orc = {}){
   const byP = new Map();
   at.forEach(a => { if (!byP.has(a.paciente_id)) byP.set(a.paciente_id, []); byP.get(a.paciente_id).push({id: a.id, data: a.data, servicoId: a.servico_id || '', regiao: a.regiao || '', produto: a.produto || '', lote: a.lote || '', sessao: a.sessao || '', valor: a.valor ?? '', evolucao: a.evolucao || '', retorno: a.retorno_em || ''}); });
   return {
@@ -32,6 +32,7 @@ export function fromRows(sv, pa, at, ms = [], tpl = {}, ag = [], pk = [], lc = [
     msgs: ms.map(m => ({id: m.id, pid: m.paciente_id, tipo: m.tipo, chave: m.chave || '', texto: m.texto || '', em: m.enviado_em})),
     tpl,
     custos,
+    orc,
     pacotes: pk.map(k => { const ps = lc.filter(l => l.pacote_id === k.id).sort((a, b) => a.data.localeCompare(b.data) || (a.descricao || '').localeCompare(b.descricao || '', undefined, {numeric: true}));
       return {id: k.id, pid: k.paciente_id, sid: k.servico_id || '', total: k.sessoes_total, usadas: k.sessoes_usadas, valor: k.valor_total == null ? '' : Number(k.valor_total), criado: k.criado_em, validade: k.validade || '', forma: (ps[0] && ps[0].forma_pagamento) || '', parc: ps.map(l => ({id: l.id, venc: l.data, valor: Number(l.valor), pago: !!l.pago, pagoEm: l.pago_em || ''}))}; }),
     agenda: ag.map(a => ({id: a.id, pid: a.paciente_id || '', sid: a.servico_id || '', ini: localIso(a.inicio), dur: Math.round((new Date(a.fim) - new Date(a.inicio)) / 60000), status: a.status, obs: a.observacoes || '', gid: a.google_event_id || '', rem: a.remarcacoes || []})),
@@ -42,7 +43,7 @@ const chunks = (arr, n = CHUNK) => { const out = []; for (let i = 0; i < arr.len
 const snapOf = rows => new Map(rows.map(r => [r.id, JSON.stringify(r)]));
 
 export function createCloud(sb, {retryMs = 6000, debounceMs = 700} = {}){
-  let snapTpl = '{}', snapCustos = '{}', snap = null, latest = null, timer = null, busy = false, again = false, pending = false, ready = false, loadedAt = 0;
+  let snapTpl = '{}', snapCustos = '{}', snapOrc = '{}', snap = null, latest = null, timer = null, busy = false, again = false, pending = false, ready = false, loadedAt = 0;
   let statusCb = () => {};
   const status = s => statusCb(s);
 
@@ -75,6 +76,8 @@ export function createCloud(sb, {retryMs = 6000, debounceMs = 700} = {}){
     const tj = JSON.stringify(db.tpl || {});
     const cj = JSON.stringify(db.custos || {});
     if (cj !== snapCustos && db.custos && db.custos.itens) { const {error} = await sb.from('config').upsert({chave: 'custos', valor: db.custos}, {onConflict: 'chave'}); if (error) throw error; snapCustos = cj; }
+    const oj = JSON.stringify(db.orc || {});
+    if (oj !== snapOrc && db.orc && db.orc.por) { const {error} = await sb.from('config').upsert({chave: 'orcamentos', valor: db.orc}, {onConflict: 'chave'}); if (error) throw error; snapOrc = oj; }
     if (tj !== snapTpl) { const {error} = await sb.from('config').upsert({chave: 'modelos_msg', valor: db.tpl || {}}, {onConflict: 'chave'}); if (error) throw error; snapTpl = tj; }
   }
 
@@ -128,7 +131,8 @@ export function createCloud(sb, {retryMs = 6000, debounceMs = 700} = {}){
       const [sv, pa, at, ms, cfg, ag, pk, lc] = await Promise.all([all('servicos', 'ordem'), all('pacientes', 'id'), all('atendimentos', 'id'), all('mensagens', 'enviado_em'), all('config', 'chave'), all('agendamentos', 'inicio'), all('pacotes_paciente', 'id'), all('lancamentos', 'data')]);
       const tpl = ((cfg.find(c => c.chave === 'modelos_msg') || {}).valor) || {};
       const custos = ((cfg.find(c => c.chave === 'custos') || {}).valor) || {};
-      const db = fromRows(sv, pa, at, ms, tpl, ag, pk, lc.filter(l => l.pacote_id), custos); snapTpl = JSON.stringify(tpl); snapCustos = JSON.stringify(custos);
+      const orc = ((cfg.find(c => c.chave === 'orcamentos') || {}).valor) || {};
+      const db = fromRows(sv, pa, at, ms, tpl, ag, pk, lc.filter(l => l.pacote_id), custos, orc); snapTpl = JSON.stringify(tpl); snapCustos = JSON.stringify(custos); snapOrc = JSON.stringify(orc);
       snap = {servicos: new Map(), pacientes: new Map(), atendimentos: new Map(), mensagens: new Map(), agendamentos: new Map(), pacotes_paciente: new Map(), lancamentos: new Map()};
       if (!db.services.length) db.services = seedServices.map(s => ({...s}));
       // o que veio do servidor já está salvo; o catálogo inicial (banco vazio) ainda precisa subir

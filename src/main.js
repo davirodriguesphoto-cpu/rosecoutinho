@@ -6,6 +6,7 @@ import corpoSvg from './assets/mapa/corpo.svg?raw';
 import rostoSvg from './assets/mapa/rosto.svg?raw';
 import { CUSTOS_SEED } from './custos-seed.js';
 import { semear, horaFixa, totalFixo, unitario, custoDe, sugerido, margem } from './lib/custos.js';
+import { vazio as orcVazio, versoesDe, novaVersao, linhaPix, somaPix, totalPix, totalCanal, porParcela, nomeItem, mensagem as orcMensagem, fechar as orcFechar, CANAIS } from './lib/orcamento.js';
 import { preencher as preencherContrato, faltando as faltandoContrato, novoToken, cpfValido } from './lib/contrato.js';
 
 const KEY = 'rc-clinica-v1';
@@ -258,11 +259,11 @@ function importForm(){
 }
 
 /* ---------- ficha do paciente ---------- */
-const TABS = [['dados', 'Dados'], ['aval', 'Avaliação'], ['anam', 'Anamnese'], ['atend', 'Atendimentos'], ['pacotes', 'Pacotes'], ['docs', 'Documentos'], ['fotos', 'Fotos'], ['ciclo', 'Ciclo']];
+const TABS = [['dados', 'Dados'], ['aval', 'Avaliação'], ['anam', 'Anamnese'], ['atend', 'Atendimentos'], ['pacotes', 'Pacotes'], ['orc', 'Orçamentos'], ['docs', 'Documentos'], ['fotos', 'Fotos'], ['ciclo', 'Ciclo']];
 const ANAM = [['gestante', 'Gestante ou lactante'], ['alergia', 'Alergias (medicamentos, látex, anestésicos, cosméticos)'], ['medic', 'Uso contínuo de medicamentos'], ['anticoag', 'Anticoagulante ou AAS'], ['diabetes', 'Diabetes'], ['hipert', 'Hipertensão'], ['tireoide', 'Alteração de tireoide'], ['cardio', 'Doença cardíaca ou marca-passo'], ['metal', 'Implantes metálicos ou próteses'], ['onco', 'Histórico oncológico'], ['autoimune', 'Doença autoimune'], ['queloide', 'Tendência a queloide ou má cicatrização'], ['herpes', 'Herpes labial recorrente'], ['isotret', 'Isotretinoína nos últimos 6 meses'], ['cirurgia', 'Cirurgias recentes ou plásticas'], ['procs', 'Procedimentos estéticos anteriores'], ['fuma', 'Fumante'], ['sol', 'Exposição solar frequente ou bronzeamento recente']];
 /* ficha da paciente: cabeçalho com contato e contexto, seções agrupadas (Dados, Clínico, Histórico) e Dados em leitura */
 let dadosEdit = false;
-const GRUPOS = [['dados', 'Dados', ['dados']], ['clinico', 'Clínico', ['aval', 'anam', 'ciclo']], ['hist', 'Histórico', ['atend', 'pacotes', 'docs', 'fotos']]];
+const GRUPOS = [['dados', 'Dados', ['dados']], ['clinico', 'Clínico', ['aval', 'anam', 'ciclo']], ['hist', 'Histórico', ['atend', 'pacotes', 'orc', 'docs', 'fotos']]];
 const telHref = t => 'tel:' + String(t || '').replace(/[^\d+]/g, '');
 function viewPaciente(app, p){
   const grupo = GRUPOS.find(g => g[2].includes(ptab)) || GRUPOS[0], rot = k => (TABS.find(x => x[0] === k) || [k, k])[1];
@@ -282,7 +283,7 @@ function viewPaciente(app, p){
   $$('[data-t]', app).forEach(c => c.onclick = () => { ptab = c.dataset.t; viewPaciente(app, p); });
   $('#p-ag').onclick = () => agNovo(p.id);
   const b = $('#pbody');
-  ({dados: tabDados, aval: tabAval, anam: tabAnam, atend: tabAtend, pacotes: tabPacotes, docs: tabDocs, fotos: G.tabFotos, ciclo: tabCiclo})[ptab](b, p);
+  ({dados: tabDados, aval: tabAval, anam: tabAnam, atend: tabAtend, pacotes: tabPacotes, orc: tabOrc, docs: tabDocs, fotos: G.tabFotos, ciclo: tabCiclo})[ptab](b, p);
 }
 function tabDados(b, p){
   if (dadosEdit) return dadosForm(b, p);
@@ -474,7 +475,7 @@ function tabCiclo(b, p){
 }
 
 /* ---------- lembretes por WhatsApp (a Rose só toca em enviar) ---------- */
-const TIPO_NOME = {aniversario: 'Aniversário', manutencao: 'Manutenção', sumida: 'Sumida', procedimento: 'Procedimento', pagamento: 'Pagamento', pagamento_atraso: 'Pagamento em atraso', fim_plano: 'Fim de plano', contrato: 'Contrato', pos: 'Orientação pós', pos_toxina: 'Orientação pós-toxina botulínica', pos_bio: 'Orientação pós-bioestimulador'};
+const TIPO_NOME = {aniversario: 'Aniversário', manutencao: 'Manutenção', sumida: 'Sumida', procedimento: 'Procedimento', pagamento: 'Pagamento', pagamento_atraso: 'Pagamento em atraso', fim_plano: 'Fim de plano', contrato: 'Contrato', orcamento: 'Orçamento', pos: 'Orientação pós', pos_toxina: 'Orientação pós-toxina botulínica', pos_bio: 'Orientação pós-bioestimulador'};
 const URG = ['procedimento', 'pagamento', 'fim_plano', 'aniversario', 'manutencao', 'sumida'];
 const MSG_ORDEM = ['aniversario', 'manutencao', 'sumida', 'procedimento', 'pagamento', 'pagamento_atraso', 'fim_plano', 'contrato', 'pos_toxina', 'pos_bio'];
 function lembretesData(){
@@ -764,6 +765,70 @@ function pacoteEdit(k, p){
     Object.assign(k, {total: ses, usadas: us, validade: val('e-validade')}); save(); closeSheet(); route(); toast('Salvo'); };
 }
 
+/* ---------- orçamentos: até 3 versões por paciente (Pix, link Stone, maquininha PagSeguro); a escolhida vira pacotes na ficha ---------- */
+const garanteOrc = () => { if (!db.orc || !db.orc.por) db.orc = orcVazio(); if (!db.orc.taxas) db.orc.taxas = orcVazio().taxas; };
+let orcSel = 0;
+function tabOrc(b, p){
+  garanteOrc();
+  const vs = versoesDe(db.orc, p.id), v = vs[orcSel], tot = c => totalCanal(v, c, db.orc, db.services), t = today();
+  const linha = (it, i) => { return `<div class="item static"><div class="grow"><span class="t">${esc(nomeItem(it, db.services))}</span><div class="m">${it.ses} ${+it.ses === 1 ? 'sessão' : 'sessões'}${+it.pix ? ' · ' + brl(it.pix) + ' no Pix' : ''}</div></div><button class="btn ghost small" data-rm="${i}" type="button">Tirar</button></div>`; };
+  const cartao = (k, nome) => { const c = v[k], par = Math.max(1, Math.floor(+c.par) || 1), total = tot(k);
+    return `<div class="card form"><div><span class="t" style="font-weight:700">${nome}</span><p class="sub" style="margin:0">${v.itens.length ? par + 'x de ' + brl(porParcela(total, v.entrada, par)) + (+v.entrada ? ' + entrada de ' + brl(v.entrada) : '') + ' · total ' + brl(total) : 'Adicione procedimentos'}</p></div>
+      <div class="two">${field('o-par-' + k, 'Parcelas', par, 'number', 'inputmode="numeric" min="1" max="18"')}${field('o-tot-' + k, 'Total (à mão)', c.total == null ? '' : c.total, 'text', 'inputmode="decimal" placeholder="' + (v.itens.length ? total : 'automático') + '"')}</div></div>`; };
+  const msg = orcMensagem(firstName(p.nome), vs, db.orc, db.services), wa = msg && waLink(p, msg, {});
+  b.innerHTML = `<div class="chips grade" role="tablist" aria-label="Orçamento">${[0, 1, 2].map(i => `<button class="chip" role="tab" data-o="${i}" aria-selected="${i === orcSel}" type="button">Orçamento 0${i + 1}${vs[i].itens.length ? ' · ' + brl(totalPix(vs[i])) : ''}</button>`).join('')}</div>
+    ${v.fechado ? `<div class="note"><span>Fechado em ${fmtD(v.fechado)}. Os pacotes já estão na aba Pacotes.</span></div>` : ''}
+    <div class="list">${v.itens.length ? v.itens.map(linha).join('') : '<div class="empty">Nenhum procedimento neste orçamento.</div>'}</div>
+    <section class="card form"><h2 style="font-size:16px;margin:0">Adicionar procedimento</h2>${svcPicker('o-svc', '')}${field('o-livre', 'Ou descreva do seu jeito', '', 'text', 'placeholder="ex.: drenagem abdômen c/ radiofrequência"')}
+      <div class="two">${field('o-ses', 'Quantidade', 1, 'number', 'inputmode="numeric" min="1"')}${field('o-pix', 'Valor no Pix (opcional)', '', 'text', 'inputmode="decimal"')}</div>
+      <div class="actions"><button class="btn small" id="o-add" type="button">Adicionar</button></div></section>
+    <section class="card form"><div><span class="t" style="font-weight:700">Pix ou dinheiro</span><p class="sub" style="margin:0">${totalPix(v) ? 'total ' + brl(totalPix(v)) + (+v.entrada ? ' · restante ' + brl(totalPix(v) - v.entrada) : '') : 'Informe o total'}</p></div>
+      <div class="two">${field('o-pixt', 'Total no Pix (R$)', v.pix == null ? '' : v.pix, 'text', 'inputmode="decimal" placeholder="' + (somaPix(v) || '') + '"')}${field('o-ent', 'Entrada (R$)', +v.entrada || '', 'text', 'inputmode="decimal" placeholder="0"')}</div></section>
+    ${cartao('stone', 'Link de pagamento (Stone)')}${cartao('pag', 'Maquininha (PagSeguro)')}
+    <div class="actions">${wa ? `<a class="btn" id="o-wa" href="${wa}" target="_blank" rel="noopener">${ICO_BALAO}Enviar orçamentos por WhatsApp</a>` : `<span class="pill">${msg ? 'sem telefone' : 'preencha um orçamento'}</span>`}${v.itens.length && !v.fechado ? '<button class="btn ghost" id="o-fecha" type="button">Fechar este orçamento</button>' : ''}${v.itens.length ? '<button class="btn danger small" id="o-limpa" type="button">Limpar</button>' : ''}</div>
+    <p class="src">O Pix vem da Tabela de preços (ou do pacote do catálogo). O cartão é calculado com as taxas de Ajustes, para você receber o mesmo que no Pix; digite o total à mão para mudar. Ao fechar, cada procedimento vira um pacote com a entrada já paga.</p>`;
+  const salva = () => { save(); tabOrc(b, p); };
+  svcPickerBind('o-svc');
+  let pixTocado = false; $('#o-pix').oninput = () => { pixTocado = true; };
+  const sugere = () => { const s = svc(val('o-svc')); if (s && !pixTocado) $('#o-pix').value = linhaPix(s, +val('o-ses') || 1) || ''; };
+  $('#o-svc').onchange = sugere; $('#o-ses').oninput = sugere;
+  $$('[data-o]', b).forEach(x => x.onclick = () => { orcSel = +x.dataset.o; tabOrc(b, p); });
+  $$('[data-rm]', b).forEach(x => x.onclick = () => { v.itens.splice(+x.dataset.rm, 1); salva(); });
+  $('#o-add').onclick = () => { const s = svc(val('o-svc')), livre = val('o-livre'), ses = Math.floor(+val('o-ses')), pix = val('o-pix') === '' ? (s ? linhaPix(s, ses) : 0) : numBR(val('o-pix'));
+    if (!s && !livre) return toast('Escolha o procedimento ou descreva'); if (!(ses >= 1)) return toast('Informe a quantidade'); if (!(pix >= 0)) return toast('Valor no Pix inválido');
+    v.itens.push({sid: s ? s.id : '', nome: livre || '', ses, pix}); salva(); };
+  $('#o-pixt').onchange = () => { const x = val('o-pixt'); v.pix = x === '' ? null : numBR(x); if (v.pix !== null && !(v.pix >= 0)) v.pix = null; salva(); };
+  $('#o-ent').onchange = () => { const e = val('o-ent') === '' ? 0 : numBR(val('o-ent')); if (!(e >= 0)) return toast('Entrada inválida'); v.entrada = e; salva(); };
+  ['stone', 'pag'].forEach(k => { $('#o-par-' + k).onchange = () => { v[k].par = Math.min(18, Math.max(1, Math.floor(+val('o-par-' + k)) || 1)); salva(); };
+    $('#o-tot-' + k).onchange = () => { const x = val('o-tot-' + k); v[k].total = x === '' ? null : numBR(x); if (v[k].total !== null && !(v[k].total >= 0)) v[k].total = null; salva(); }; });
+  const w = $('#o-wa'); if (w) w.onclick = () => registrarEnvio(p.id, 'orcamento', 'orcamento:' + Date.now(), msg);
+  const l = $('#o-limpa'); if (l) arm(l, () => { vs[orcSel] = novaVersao(); salva(); });
+  const f = $('#o-fecha'); if (f) f.onclick = () => orcFecha(p, v, () => { ptab = 'pacotes'; route(); });
+}
+function orcFecha(p, v, depois){
+  openSheet('Fechar orçamento 0' + (orcSel + 1), `<div class="form"><p class="sub" style="margin:0">Cada procedimento vira um pacote na ficha, com o valor dividido e a entrada já como parcela paga.</p>
+    ${select('f-canal', 'Como a paciente vai pagar', CANAIS.map(([k, n]) => [k, n]), 'pix')}
+    <div class="two">${field('f-par', 'Parcelas do restante', 1, 'number', 'inputmode="numeric" min="1" max="18"')}${field('f-ent', 'Entrada (R$)', +v.entrada || '', 'text', 'inputmode="decimal" placeholder="0"')}</div>
+    <p class="sub" id="f-prev" style="margin:0"></p><p class="sub" id="f-erro" role="alert" style="margin:0;color:var(--bad)"></p>
+    <div class="actions"><button class="btn" id="f-ok" type="button">Criar pacotes</button></div></div>`);
+  const leitura = () => ({canal: val('f-canal'), par: Math.min(24, Math.max(1, Math.floor(+val('f-par')) || 1)), ent: val('f-ent') === '' ? 0 : numBR(val('f-ent'))});
+  const prev = () => { const {canal, par, ent} = leitura(), total = totalCanal(v, canal, db.orc, db.services);
+    $('#f-prev').textContent = ent >= 0 && ent <= total ? 'Total ' + brl(total) + (ent ? ', entrada de ' + brl(ent) : '') + ', restante em ' + par + 'x de ' + brl(porParcela(total, ent, par)) + '.' : ''; };
+  $('#f-canal').onchange = () => { if (v[val('f-canal')]) $('#f-par').value = v[val('f-canal')].par; prev(); };
+  ['f-par', 'f-ent'].forEach(id => $('#' + id).addEventListener('input', prev)); prev();
+  $('#f-ok').onclick = () => { const {canal, par, ent} = leitura(), total = totalCanal(v, canal, db.orc, db.services);
+    if (!(ent >= 0) || ent > total) return $('#f-erro').textContent = 'A entrada não pode passar do total.';
+    db.pacotes.push(...orcFechar(v, canal, par, ent, db.orc, db.services, {pid: p.id, hoje: today(), uid, addMonths, addDays}));
+    v.fechado = today(); save(); closeSheet(); depois(); toast('Orçamento fechado: pacotes criados'); };
+}
+function orcTaxas(){
+  garanteOrc();
+  const bloco = (k, nome) => `<details class="group"><summary>${nome}<span>${Object.keys(db.orc.taxas[k] || {}).length} parcelamentos</span></summary><div class="form" style="padding:12px">${Array.from({length: 18}, (_, i) => field('tx-' + k + '-' + (i + 1), (i + 1) + 'x (%)', (db.orc.taxas[k] || {})[i + 1] ?? '', 'text', 'inputmode="decimal"')).join('')}</div></details>`;
+  openSheet('Taxas do cartão', `<div class="form"><p class="sub" style="margin:0">Taxa de cada parcelamento. O valor no cartão sai do Pix dividido por (1 − taxa), para você receber o mesmo que no Pix. Em branco = usa o preço de cartão da Tabela de preços.</p>
+    ${bloco('stone', 'Link de pagamento (Stone)')}${bloco('pag', 'Maquininha (PagSeguro)')}<div class="actions"><button class="btn" id="tx-ok" type="button">Salvar</button></div></div>`);
+  $('#tx-ok').onclick = () => { ['stone', 'pag'].forEach(k => { const o = {}; for (let i = 1; i <= 18; i++) { const x = val('tx-' + k + '-' + i); if (x !== '' && numBR(x) >= 0 && numBR(x) < 100) o[i] = numBR(x); } db.orc.taxas[k] = o; }); save(); closeSheet(); toast('Taxas salvas'); };
+}
+
 /* ---------- documentos: contrato com assinatura online (só com login; o modo de teste não guarda documentos) ---------- */
 const CONTRATO_URL = (import.meta.env.VITE_CONTRATO_URL || 'https://contrato.rosecoutinho.com.br') + '/contrato.html';
 const docLink = d => d.token ? CONTRATO_URL + '#' + d.token : '';
@@ -829,10 +894,12 @@ function abrirAjustes(){
   const sair = !$('#logout').hidden;
   openSheet('Ajustes', `<div class="menu"><div class="list">
     <a class="item" href="#precos"><div class="grow"><div class="t">Tabela de preços</div><div class="m">Preço final e preço sugerido</div></div>${ICO_SETA}</a>
-    <a class="item" href="#despesas"><div class="grow"><div class="t">Despesas e produtos</div><div class="m">Aluguel, materiais e custo por hora</div></div>${ICO_SETA}</a></div>
+    <a class="item" href="#despesas"><div class="grow"><div class="t">Despesas e produtos</div><div class="m">Aluguel, materiais e custo por hora</div></div>${ICO_SETA}</a>
+    <button class="item" id="a-taxas" type="button"><div class="grow"><div class="t">Taxas do cartão</div><div class="m">Link da Stone e maquininha PagSeguro</div></div>${ICO_SETA}</button></div>
     ${cloud ? '<details class="gaveta"><summary><span>Google</span><small id="a-gst">verificando…</small>' + ICO_SETA + '</summary><div id="a-google"></div></details>' : ''}
     ${sair ? '<div class="actions"><button class="btn ghost" id="a-sair" type="button">Sair</button></div>' : ''}</div>`);
   if (cloud) G.afterAgenda($('#app'), $('#a-google')).then(() => { const st = $('#a-gst'); if (st) st.textContent = /Google conectado/.test($('#a-google').textContent) ? 'conectado' : /Conectar/i.test($('#a-google').textContent) ? 'não conectado' : 'sem resposta'; });
+  $('#a-taxas').onclick = orcTaxas;
   const b = $('#a-sair'); if (b) b.onclick = () => $('#logout').click();
 }
 $('#ajustes').onclick = abrirAjustes;
@@ -1000,7 +1067,7 @@ async function viewChallenge(){
 }
 async function startCloud(){
   chrome(true); $('#app').innerHTML = '<p class="sub">Carregando…</p>';
-  try { db = await cloud.load(SERVICES); garanteCustos(); armIdle(); route(); }
+  try { db = await cloud.load(SERVICES); garanteCustos(); garanteOrc(); armIdle(); route(); }
   catch (e) { console.error(e); $('#app').innerHTML = '<div class="card form"><p style="margin:0">Não foi possível carregar os dados. Verifique a conexão.</p><button class="btn" id="retry" type="button">Tentar de novo</button></div>'; $('#retry').onclick = startCloud; }
 }
 /* saída automática: computador esquecido aberto não expõe pacientes */
@@ -1019,14 +1086,14 @@ function viewConfig(){
   $('#app').innerHTML = '<div class="login card form"><h1 style="font-size:20px">Configuração pendente</h1><p style="margin:0">Faltam as variáveis do Supabase neste ambiente. Por segurança, o app não abre sem login. Veja o README, passo 3.</p></div>';
 }
 async function boot(){
-  if (!cloud) { if (!demoOk) return viewConfig(); db = localLoad() || seed(); db.msgs = db.msgs || []; db.tpl = db.tpl || {}; db.agenda = db.agenda || []; db.pacotes = db.pacotes || []; garanteCustos(); chrome(true); route(); return; }
+  if (!cloud) { if (!demoOk) return viewConfig(); db = localLoad() || seed(); db.msgs = db.msgs || []; db.tpl = db.tpl || {}; db.agenda = db.agenda || []; db.pacotes = db.pacotes || []; garanteCustos(); garanteOrc(); chrome(true); route(); return; }
   cloud.onStatus(setSync); cloud.onSignOut(() => location.reload());
   $('#logout').onclick = async () => { await cloud.signOut(); location.reload(); };
   gate();
   document.addEventListener('visibilitychange', async () => { /* traz mudanças feitas em outro aparelho */
     if (document.visibilityState !== 'visible' || !cloud.ready || cloud.pending || Date.now() - cloud.loadedAt < 60000) return;
     if (!$('#sheet').hidden || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
-    try { db = await cloud.load(SERVICES); garanteCustos(); route(); } catch (e) {}
+    try { db = await cloud.load(SERVICES); garanteCustos(); garanteOrc(); route(); } catch (e) {}
   });
   window.addEventListener('beforeunload', e => { if (cloud.pending) { e.preventDefault(); e.returnValue = ''; } });
 }
