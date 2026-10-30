@@ -789,9 +789,9 @@ function abrirAjustes(){
   openSheet('Ajustes', `<div class="menu"><div class="list">
     <a class="item" href="#precos"><div class="grow"><div class="t">Tabela de preços</div><div class="m">Preço final e preço sugerido</div></div>${ICO_SETA}</a>
     <a class="item" href="#despesas"><div class="grow"><div class="t">Despesas e produtos</div><div class="m">Aluguel, materiais e custo por hora</div></div>${ICO_SETA}</a></div>
-    ${cloud ? '<div id="a-google"></div>' : ''}
+    ${cloud ? '<details class="gaveta"><summary><span>Google</span><small id="a-gst">verificando…</small>' + ICO_SETA + '</summary><div id="a-google"></div></details>' : ''}
     ${sair ? '<div class="actions"><button class="btn ghost" id="a-sair" type="button">Sair</button></div>' : ''}</div>`);
-  if (cloud) G.afterAgenda($('#app'), $('#a-google'));
+  if (cloud) G.afterAgenda($('#app'), $('#a-google')).then(() => { const st = $('#a-gst'); if (st) st.textContent = /Google conectado/.test($('#a-google').textContent) ? 'conectado' : /Conectar/i.test($('#a-google').textContent) ? 'não conectado' : 'sem resposta'; });
   const b = $('#a-sair'); if (b) b.onclick = () => $('#logout').click();
 }
 $('#ajustes').onclick = abrirAjustes;

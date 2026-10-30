@@ -575,3 +575,15 @@ body{overflow-x:visible}
 .rr input{width:64px;text-align:center;flex:none}
 /* topo sem desfoque: o desfoque do vidro "vaza" nas bordas da tela e clareava uma tira nas laterais do cabecalho */
 .top::before{-webkit-backdrop-filter:none;backdrop-filter:none}
+
+/* gaveta em pilula (Ajustes): fechada e uma pilula, aberta vira cartao com o conteudo */
+.gaveta{border:1px solid var(--glassb);background:var(--glass);border-radius:999px;box-shadow:var(--glassh);overflow:hidden;transition:border-radius .25s var(--ease)}
+.gaveta[open]{border-radius:26px}
+.gaveta summary{list-style:none;display:flex;align-items:center;gap:10px;padding:14px 18px;cursor:pointer;font:600 15px var(--body);min-height:52px}
+.gaveta summary::-webkit-details-marker{display:none}
+.gaveta summary span{flex:1}
+.gaveta summary small{color:var(--muted);font-size:13px}
+.gaveta summary .ico{width:18px;height:18px;color:var(--muted);flex:none;transition:transform .25s var(--ease)}
+.gaveta[open] summary .ico{transform:rotate(90deg)}
+.gaveta>div{padding:0 18px 18px}
+.gaveta .g-card{background:none;border:0;box-shadow:none;padding:0;margin:0;-webkit-backdrop-filter:none;backdrop-filter:none}
