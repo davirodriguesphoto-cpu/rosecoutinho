@@ -602,3 +602,9 @@ body{overflow-x:visible}
 /* ações pequenas de cada lembrete (dispensar, adicionar WhatsApp) */
 .lem-mini{display:flex;flex-wrap:wrap;gap:2px 14px;margin-top:2px}
 .lem-mini .linkbtn{font-size:13px;font-weight:600;min-height:36px;padding:0}
+
+/* lembretes em gavetas: uma por tipo, fechadas, com a contagem */
+.lem-gavetas{display:flex;flex-direction:column;gap:10px}
+.gaveta summary small.n{background:var(--btn);color:var(--btn-fg);border-radius:99px;padding:1px 10px;font-weight:700;font-size:12px;line-height:20px}
+.lem-gavetas .gaveta>div{padding:0 10px 12px}
+.lem-gavetas .gaveta .list{border:0;background:none;box-shadow:none}

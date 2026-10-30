@@ -508,6 +508,8 @@ function telForm(p){
   openSheet('WhatsApp de ' + firstName(p.nome), `<div class="form">${field('lt-tel', 'WhatsApp', p.tel || '', 'tel', 'inputmode="tel"')}<div class="actions"><button class="btn" id="lt-ok" type="button">Salvar</button></div></div>`);
   $('#lt-ok').onclick = () => { if (!val('lt-tel')) return toast('Informe o número'); p.tel = val('lt-tel'); save(); closeSheet(); route(); toast('WhatsApp salvo'); };
 }
+const LEM_TITULO = {procedimento: 'Procedimentos', pagamento: 'Pagamentos', aniversario: 'Aniversariantes', sumida: 'Reativação de clientes', manutencao: 'Manutenções', fim_plano: 'Fim de plano'};
+let lemAberto = new Set();
 function viewLembretes(app){
   const L = lembretesData(), pend = L.filter(x => !x.sent), feitos = L.filter(x => x.sent && db.msgs.some(m => m.pid === x.p.id && m.chave === x.chave && m.texto !== DISPENSADO)).length;
   const semTel = pend.filter(x => !waLink(x.p, tplOf(x.tpl || x.tipo), x));
@@ -517,7 +519,7 @@ function viewLembretes(app){
   const grupos = URG.map(t => ({t, rows: pend.map((x, i) => ({x, i})).filter(r => r.x.tipo === t)})).filter(g => g.rows.length);
   const recentes = db.msgs.filter(m => m.texto !== DISPENSADO).sort((a, b) => b.em.localeCompare(a.em)).slice(0, 8);
   app.innerHTML = `<div class="head"><div><h1>Lembretes</h1><p class="sub">${pend.length ? pend.length + ' para enviar hoje' : 'Nada para enviar agora'}${feitos ? ' · ' + feitos + ' já enviado' + (feitos > 1 ? 's' : '') : ''}</p></div><div class="actions">${semTel.length ? `<button class="btn ghost small" id="l-semtel" type="button">Dispensar ${semTel.length} sem telefone</button>` : ''}<button class="btn ghost small" id="l-tpl" type="button">Editar mensagens</button></div></div>
-    ${grupos.length ? grupos.map(g => `<section><div class="subh"><h2>${TIPO_NOME[g.t]}</h2><span class="pill">${g.rows.length}</span></div><div class="list">${g.rows.map(r => linha(r.x, r.i)).join('')}</div></section>`).join('') : '<section><div class="list"><div class="empty">Tudo em dia.</div></div></section>'}
+    ${grupos.length ? `<div class="lem-gavetas">${grupos.map(g => `<details class="gaveta" data-g="${g.t}"${lemAberto.has(g.t) ? ' open' : ''}><summary><span>${LEM_TITULO[g.t]}</span><small class="n">${g.rows.length}</small>${ICO_SETA}</summary><div><div class="list">${g.rows.map(r => linha(r.x, r.i)).join('')}</div></div></details>`).join('')}</div>` : '<section><div class="list"><div class="empty">Tudo em dia.</div></div></section>'}
     <section><h2>Enviados recentemente</h2><div class="list">${recentes.length ? recentes.map(m => `<div class="item static"><div class="grow"><span class="t">${esc(nomeDe(m.pid))}</span><div class="m">${TIPO_NOME[m.tipo] || 'Mensagem'} · ${new Date(m.em).toLocaleDateString('pt-BR')}</div></div></div>`).join('') : '<div class="empty">Nenhum envio registrado.</div>'}</div></section>
     <details class="como"><summary>Como funcionam os lembretes</summary><p class="src">O botão abre o WhatsApp com a mensagem pronta; quem envia é a Rose. Ao tocar, o envio fica registrado e o lembrete sai da lista. Aniversário no dia; manutenção até 3 dias antes do retorno; sumida a partir de ${SUMIDA_DIAS} dias sem vir. Procedimento: 1 dia antes do horário. Pagamento: 7 dias e 1 dia antes do vencimento da parcela, e uma vez por mês enquanto estiver atrasada. Fim de plano: 7 dias antes da validade do pacote, se ainda houver sessões.</p></details>`;
   $$('a[data-send]', app).forEach(a => a.onclick = () => { const x = pend[+a.dataset.send];
@@ -526,6 +528,7 @@ function viewLembretes(app){
       a.replaceWith(caixa); linha.classList.add('apagado'); const t = setTimeout(route, 6000);
       caixa.querySelector('button').onclick = () => { clearTimeout(t); db.msgs = db.msgs.filter(m => m.id !== id); save(); route(); toast('Envio desfeito'); }; }, 200); });
   $('#l-tpl').onclick = tplForm;
+  $$('details.gaveta[data-g]', app).forEach(d => d.addEventListener('toggle', () => d.open ? lemAberto.add(d.dataset.g) : lemAberto.delete(d.dataset.g)));
   $$('[data-dis]', app).forEach(b => b.onclick = () => { dispensar(pend[+b.dataset.dis]); save(); route(); toast('Lembrete dispensado'); });
   $$('[data-tel]', app).forEach(b => b.onclick = () => telForm(db.patients.find(p => p.id === b.dataset.tel)));
   const st = $('#l-semtel'); if (st) arm(st, () => { semTel.forEach(dispensar); save(); route(); toast(semTel.length + ' lembretes dispensados'); });
