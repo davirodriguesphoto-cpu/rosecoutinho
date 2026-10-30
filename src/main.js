@@ -501,14 +501,22 @@ function lembretesData(){
   D.sumidos.forEach(x => add(x.p, 'sumida', 'sumida:' + t.slice(0, 7), 'última visita há ' + x.dias + ' dias'));
   return out.sort((a, b) => a.sent - b.sent || URG.indexOf(a.tipo) - URG.indexOf(b.tipo) || (a.tpl === 'pagamento_atraso' ? 0 : 1) - (b.tpl === 'pagamento_atraso' ? 0 : 1));
 }
+/* lembrete dispensado: fica registrado (não volta até a próxima chave, ex.: mês seguinte) mas não conta como enviado */
+const DISPENSADO = '[dispensado]';
+const dispensar = x => db.msgs.push({id: uid(), pid: x.p.id, tipo: x.tipo, chave: x.chave, texto: DISPENSADO, em: new Date().toISOString()});
+function telForm(p){
+  openSheet('WhatsApp de ' + firstName(p.nome), `<div class="form">${field('lt-tel', 'WhatsApp', p.tel || '', 'tel', 'inputmode="tel"')}<div class="actions"><button class="btn" id="lt-ok" type="button">Salvar</button></div></div>`);
+  $('#lt-ok').onclick = () => { if (!val('lt-tel')) return toast('Informe o número'); p.tel = val('lt-tel'); save(); closeSheet(); route(); toast('WhatsApp salvo'); };
+}
 function viewLembretes(app){
-  const L = lembretesData(), pend = L.filter(x => !x.sent), feitos = L.filter(x => x.sent).length;
+  const L = lembretesData(), pend = L.filter(x => !x.sent), feitos = L.filter(x => x.sent && db.msgs.some(m => m.pid === x.p.id && m.chave === x.chave && m.texto !== DISPENSADO)).length;
+  const semTel = pend.filter(x => !waLink(x.p, tplOf(x.tpl || x.tipo), x));
   const nomeDe = id => (db.patients.find(p => p.id === id) || {nome: 'Paciente removida'}).nome;
   const linha = (x, i) => { const link = waLink(x.p, tplOf(x.tpl || x.tipo), x);
-    return `<div class="item static"><a class="avatar" href="#paciente-${x.p.id}" aria-label="Abrir ficha de ${esc(x.p.nome)}" style="text-decoration:none">${esc(initials(x.p.nome))}</a><div class="grow"><a class="t" href="#paciente-${x.p.id}" style="color:inherit;text-decoration:none">${esc(x.p.nome)}</a><div class="m">${esc(x.det)}</div>${x.aviso ? `<div class="m" style="color:var(--warn)">${esc(x.aviso)}</div>` : ''}</div>${link ? `<a class="btn small" data-send="${i}" href="${link}" target="_blank" rel="noopener">WhatsApp</a>` : '<span class="pill">sem telefone</span>'}</div>`; };
+    return `<div class="item static"><a class="avatar" href="#paciente-${x.p.id}" aria-label="Abrir ficha de ${esc(x.p.nome)}" style="text-decoration:none">${esc(initials(x.p.nome))}</a><div class="grow"><a class="t" href="#paciente-${x.p.id}" style="color:inherit;text-decoration:none">${esc(x.p.nome)}</a><div class="m">${esc(x.det)}</div>${x.aviso ? `<div class="m" style="color:var(--warn)">${esc(x.aviso)}</div>` : ''}<div class="lem-mini">${link ? '' : `<button class="linkbtn" data-tel="${x.p.id}" type="button">Adicionar WhatsApp</button>`}<button class="linkbtn" data-dis="${i}" type="button">Dispensar</button></div></div>${link ? `<a class="btn small" data-send="${i}" href="${link}" target="_blank" rel="noopener">WhatsApp</a>` : '<span class="pill">sem telefone</span>'}</div>`; };
   const grupos = URG.map(t => ({t, rows: pend.map((x, i) => ({x, i})).filter(r => r.x.tipo === t)})).filter(g => g.rows.length);
-  const recentes = [...db.msgs].sort((a, b) => b.em.localeCompare(a.em)).slice(0, 8);
-  app.innerHTML = `<div class="head"><div><h1>Lembretes</h1><p class="sub">${pend.length ? pend.length + ' para enviar hoje' : 'Nada para enviar agora'}${feitos ? ' · ' + feitos + ' já enviado' + (feitos > 1 ? 's' : '') : ''}</p></div><div class="actions"><button class="btn ghost small" id="l-tpl" type="button">Editar mensagens</button></div></div>
+  const recentes = db.msgs.filter(m => m.texto !== DISPENSADO).sort((a, b) => b.em.localeCompare(a.em)).slice(0, 8);
+  app.innerHTML = `<div class="head"><div><h1>Lembretes</h1><p class="sub">${pend.length ? pend.length + ' para enviar hoje' : 'Nada para enviar agora'}${feitos ? ' · ' + feitos + ' já enviado' + (feitos > 1 ? 's' : '') : ''}</p></div><div class="actions">${semTel.length ? `<button class="btn ghost small" id="l-semtel" type="button">Dispensar ${semTel.length} sem telefone</button>` : ''}<button class="btn ghost small" id="l-tpl" type="button">Editar mensagens</button></div></div>
     ${grupos.length ? grupos.map(g => `<section><div class="subh"><h2>${TIPO_NOME[g.t]}</h2><span class="pill">${g.rows.length}</span></div><div class="list">${g.rows.map(r => linha(r.x, r.i)).join('')}</div></section>`).join('') : '<section><div class="list"><div class="empty">Tudo em dia.</div></div></section>'}
     <section><h2>Enviados recentemente</h2><div class="list">${recentes.length ? recentes.map(m => `<div class="item static"><div class="grow"><span class="t">${esc(nomeDe(m.pid))}</span><div class="m">${TIPO_NOME[m.tipo] || 'Mensagem'} · ${new Date(m.em).toLocaleDateString('pt-BR')}</div></div></div>`).join('') : '<div class="empty">Nenhum envio registrado.</div>'}</div></section>
     <details class="como"><summary>Como funcionam os lembretes</summary><p class="src">O botão abre o WhatsApp com a mensagem pronta; quem envia é a Rose. Ao tocar, o envio fica registrado e o lembrete sai da lista. Aniversário no dia; manutenção até 3 dias antes do retorno; sumida a partir de ${SUMIDA_DIAS} dias sem vir. Procedimento: 1 dia antes do horário. Pagamento: 7 dias e 1 dia antes do vencimento da parcela, e uma vez por mês enquanto estiver atrasada. Fim de plano: 7 dias antes da validade do pacote, se ainda houver sessões.</p></details>`;
@@ -518,6 +526,9 @@ function viewLembretes(app){
       a.replaceWith(caixa); linha.classList.add('apagado'); const t = setTimeout(route, 6000);
       caixa.querySelector('button').onclick = () => { clearTimeout(t); db.msgs = db.msgs.filter(m => m.id !== id); save(); route(); toast('Envio desfeito'); }; }, 200); });
   $('#l-tpl').onclick = tplForm;
+  $$('[data-dis]', app).forEach(b => b.onclick = () => { dispensar(pend[+b.dataset.dis]); save(); route(); toast('Lembrete dispensado'); });
+  $$('[data-tel]', app).forEach(b => b.onclick = () => telForm(db.patients.find(p => p.id === b.dataset.tel)));
+  const st = $('#l-semtel'); if (st) arm(st, () => { semTel.forEach(dispensar); save(); route(); toast(semTel.length + ' lembretes dispensados'); });
 }
 function registrarEnvio(pid, tipo, chave, texto){ const id = uid(); db.msgs.push({id, pid, tipo, chave, texto, em: new Date().toISOString()}); save(); return id; }
 function tplForm(){

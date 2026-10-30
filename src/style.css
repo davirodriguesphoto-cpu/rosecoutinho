@@ -598,3 +598,7 @@ body{overflow-x:visible}
 .top #sino{position:relative;text-decoration:none}
 .top #sino .bdg{top:-3px;left:auto;right:-3px}
 .top #sino[aria-current="page"]{color:var(--link);background:var(--tint)}
+
+/* ações pequenas de cada lembrete (dispensar, adicionar WhatsApp) */
+.lem-mini{display:flex;flex-wrap:wrap;gap:2px 14px;margin-top:2px}
+.lem-mini .linkbtn{font-size:13px;font-weight:600;min-height:36px;padding:0}
