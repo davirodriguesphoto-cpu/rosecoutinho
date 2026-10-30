@@ -109,6 +109,8 @@ const TPL_PADRAO = {
   pagamento_atraso: 'Oi, {nome}! Notei que a parcela de {valor} do seu plano ({servico}), com vencimento em {data}, ainda está em aberto. Posso te ajudar com alguma dúvida?',
   contrato: 'Oi, {nome}! Segue o link para você ler e assinar o seu contrato com a Rose Coutinho: {link}',
   fim_plano: 'Oi, {nome}! Seu plano ({servico}) termina em {data}. Vamos conversar sobre a continuidade do seu tratamento?',
+  pos_toxina: 'Oi, {nome}! Seguem as orientações para depois da sua toxina botulínica:\n\n• Não deite, não abaixe a cabeça nem faça esforços físicos nas primeiras 4 horas;\n• Evite massagear, comprimir ou manipular a área tratada por 24 horas, para evitar a migração da toxina;\n• Não faça atividades físicas intensas, banhos muito quentes, saunas ou exposição solar direta por 48 horas;\n• Se surgirem pequenos hematomas, inchaço ou sensibilidade, é normal: pode amenizar com compressas frias leves, sem pressão;\n• Não aplique maquiagem ou cremes sobre a região tratada nas primeiras 12 horas;\n• A ação da toxina começa entre 2 e 7 dias e atinge o resultado máximo em até 15 dias;\n• Evite bebidas alcoólicas e anti-inflamatórios nas primeiras 24 horas, salvo prescrição médica;\n• Em caso de dor de cabeça leve, pode usar o analgésico prescrito pela profissional;\n• Volte para reavaliação após 14 dias, se precisar de aplicação complementar;\n• Se persistirem sintomas incomuns, assimetrias ou qualquer anormalidade, me avise.\n\nQualquer dúvida é só me chamar. Um beijo, Rose Coutinho.',
+  pos_bio: 'Oi, {nome}! Seguem as orientações para depois do seu bioestimulador de colágeno:\n\n• Massageie a região tratada logo após a aplicação, por 3 dias, 3 vezes ao dia;\n• Pode aparecer um pequeno halo de vermelhidão, inchaço e coceira ao redor dos pontos de aplicação: é uma reação normal do organismo à injeção e regride nas primeiras horas ou em poucos dias, sem precisar de tratamento;\n• Assimetria e sensação de pele mais tensa devem melhorar durante as primeiras semanas, enquanto o produto é metabolizado entre os tecidos;\n• Se os sintomas persistirem ou surgir qualquer anormalidade, me avise.\n\nQualquer dúvida é só me chamar. Um beijo, Rose Coutinho.',
 };
 const tplOf = k => (db.tpl && db.tpl[k]) || TPL_PADRAO[k];
 const monthAdd = (key, n) => { const [y, m] = key.split('-').map(Number); const d = new Date(y, m - 1 + n, 1); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
@@ -450,9 +452,9 @@ function tabCiclo(b, p){
 }
 
 /* ---------- lembretes por WhatsApp (a Rose só toca em enviar) ---------- */
-const TIPO_NOME = {aniversario: 'Aniversário', manutencao: 'Manutenção', sumida: 'Sumida', procedimento: 'Procedimento', pagamento: 'Pagamento', pagamento_atraso: 'Pagamento em atraso', fim_plano: 'Fim de plano', contrato: 'Contrato'};
+const TIPO_NOME = {aniversario: 'Aniversário', manutencao: 'Manutenção', sumida: 'Sumida', procedimento: 'Procedimento', pagamento: 'Pagamento', pagamento_atraso: 'Pagamento em atraso', fim_plano: 'Fim de plano', contrato: 'Contrato', pos: 'Orientação pós', pos_toxina: 'Orientação pós-toxina botulínica', pos_bio: 'Orientação pós-bioestimulador'};
 const URG = ['procedimento', 'pagamento', 'fim_plano', 'aniversario', 'manutencao', 'sumida'];
-const MSG_ORDEM = ['aniversario', 'manutencao', 'sumida', 'procedimento', 'pagamento', 'pagamento_atraso', 'fim_plano', 'contrato'];
+const MSG_ORDEM = ['aniversario', 'manutencao', 'sumida', 'procedimento', 'pagamento', 'pagamento_atraso', 'fim_plano', 'contrato', 'pos_toxina', 'pos_bio'];
 function lembretesData(){
   const t = today(), D = dashData(), out = [];
   const enviado = (pid, chave) => db.msgs.some(m => m.pid === pid && m.chave === chave);
@@ -545,6 +547,16 @@ function agFatos(a){
     ${aviso ? `<div class="al">${esc(aviso)}</div>` : ''}${a.obs ? `<p class="sub" style="margin:0">Obs.: ${esc(a.obs)}</p>` : ''}
     <div class="actions">${lembrar}<a class="btn ghost small" href="#paciente-${p.id}">Abrir ficha</a><button class="btn ghost small" data-ag="${a.id}" type="button">Remarcar ou mudar situação</button></div>`;
 }
+/* orientação pós-procedimento: toxina e bioestimulador feitos hoje ou nos 2 dias anteriores (atendimento da ficha ou horário marcado como realizado) e ainda não enviada */
+const POS = [['toxina', /toxina/i, 'pos_toxina', 'Toxina botulínica'], ['bio', /bioestimulador/i, 'pos_bio', 'Bioestimulador']];
+function posPendentes(){
+  const t = today(), desde = addDays(t, -2), m = new Map();
+  const add = (p, nome, dia) => { const k = p && dia && dia >= desde && dia <= t && POS.find(x => x[1].test(nome || '')); if (!k) return;
+    const chave = 'pos:' + p.id + ':' + dia + ':' + k[0]; if (!m.has(chave)) m.set(chave, {p, k, dia, chave, sent: db.msgs.some(x => x.pid === p.id && x.chave === chave)}); };
+  db.patients.forEach(p => p.atend.forEach(a => { const s = svc(a.servicoId); add(p, s ? s.nome : a.produto, a.data); }));
+  db.agenda.filter(a => a.status === 'realizado').forEach(a => { const s = svc(a.sid); add(pacDe(a.pid), s && s.nome, agDia(a.ini)); });
+  return [...m.values()].filter(x => !x.sent).sort((a, b) => b.dia.localeCompare(a.dia));
+}
 function viewAgenda(app){
   const t = today(), amanha = addDays(t, 1); if (!agSel) agSel = t;
   const porDia = new Map(); db.agenda.filter(a => a.status !== 'cancelado').forEach(a => { const d = agDia(a.ini); porDia.set(d, (porDia.get(d) || 0) + 1); });
@@ -559,6 +571,9 @@ function viewAgenda(app){
   const resumo = ativos.length ? ativos.length + (ativos.length === 1 ? ' horário' : ' horários') + (agSel === t && destaque ? ' · próximo às ' + agHora(destaque.ini) : '') : 'Nenhum horário marcado';
   const deAmanha = db.agenda.filter(a => (a.status === 'agendado' || a.status === 'confirmado') && agDia(a.ini) === amanha).sort((a, b) => a.ini.localeCompare(b.ini));
   const paraLembrar = deAmanha.filter(a => agLembravel(a) && !agLembrado(a)).length;
+  const pos = posPendentes();
+  const posHtml = pos.length ? `<section class="card pos"><div class="subh"><div><h2 style="margin:0;font-size:16px">Enviar orientação pós-procedimento</h2><p class="sub" style="margin:2px 0 0">${pos.length} ${pos.length === 1 ? 'paciente' : 'pacientes'} para orientar</p></div></div><div class="list">${pos.map((x, i) => { const link = waLink(x.p, tplOf(x.k[2]), {});
+    return `<div class="item static"><div class="grow"><span class="t">${esc(x.p.nome)}</span><div class="m">${x.k[3]} · ${x.dia === t ? 'hoje' : x.dia === addDays(t, -1) ? 'ontem' : fmtD(x.dia).slice(0, 5)}</div></div>${link ? `<a class="btn small" data-pos="${i}" href="${link}" target="_blank" rel="noopener">${ICO_BALAO}WhatsApp</a>` : '<span class="pill">sem telefone</span>'}</div>`; }).join('')}</div></section>` : '';
   const amanhaHtml = agSel === amanha ? '' : `<section><div class="subh"><div><h2 style="margin:0">Amanhã</h2><p class="sub" style="margin:2px 0 0">${deAmanha.length ? deAmanha.length + (deAmanha.length === 1 ? ' horário' : ' horários') + (paraLembrar ? ' · ' + paraLembrar + ' para lembrar' : ' · lembretes em dia') : 'Nenhum horário marcado'}</p></div></div>
     ${deAmanha.length ? `<div class="list">${deAmanha.map(a => { const p = pacDe(a.pid), s = svc(a.sid);
       const acao = agLembravel(a) ? (agLembrado(a) ? '<span class="pill">Lembrete enviado</span>' : `<a class="btn small" data-lembrar="${a.id}" href="${waLink(p, tplOf('procedimento'), {servico: s && s.nome, data: agDia(a.ini), hora: agHora(a.ini)})}" target="_blank" rel="noopener">${ICO_BALAO}WhatsApp</a>`) : '<span class="pill">sem telefone</span>';
@@ -593,7 +608,7 @@ function viewAgenda(app){
       <button class="seta so-md" id="ag-next" type="button" aria-label="Próxima semana">${SETA_D}</button>
       <button class="calbtn" id="ag-cal" type="button" aria-expanded="${agCal}" aria-label="${agCal ? 'Fechar o calendário' : 'Abrir o calendário do mês'}">${ICO_CAL}</button></div>
     ${agCal ? calHtml() : ''}
-    <section><div class="subh"><div><h2 style="margin:0">${esc(agSel === t ? 'Hoje' : nomeDia(agSel))}</h2><p class="sub" style="margin:2px 0 0">${resumo}</p></div>${agSel !== t ? '<button class="btn ghost small" id="ag-hoje" type="button">Hoje</button>' : ''}</div>
+    ${posHtml}<section><div class="subh"><div><h2 style="margin:0">${esc(agSel === t ? 'Hoje' : nomeDia(agSel))}</h2><p class="sub" style="margin:2px 0 0">${resumo}</p></div>${agSel !== t ? '<button class="btn ghost small" id="ag-hoje" type="button">Hoje</button>' : ''}</div>
       ${heroHtml}${doDia.length ? (resto.length ? `<div class="list">${resto.map(linha).join('')}</div>` : '') : `<div class="list">${vazio}</div>`}</section>${amanhaHtml}</div>
     <aside class="ag-side">${proximosHtml}</aside>`;
   const vai = d => { agSel = d; if (agCal) agMes = d.slice(0, 7); viewAgenda(app); };
@@ -618,6 +633,7 @@ function viewAgenda(app){
   $$('[data-ag]', app).forEach(b => b.onclick = () => agDetalhe(db.agenda.find(a => a.id === b.dataset.ag)));
   $$('[data-lembrar]', app).forEach(a => a.onclick = () => { const x = db.agenda.find(y => y.id === a.dataset.lembrar), L = agLembrete(x);
     registrarEnvio(x.pid, 'procedimento', L.chave, msgText(L.p, tplOf('procedimento'), {servico: L.s && L.s.nome, data: agDia(x.ini), hora: agHora(x.ini)})); setTimeout(() => viewAgenda(app), 400); });
+  $$('[data-pos]', app).forEach(a => a.onclick = () => { const x = pos[+a.dataset.pos]; registrarEnvio(x.p.id, 'pos', x.chave, msgText(x.p, tplOf(x.k[2]), {})); setTimeout(() => viewAgenda(app), 400); });
   demoBind();
   G.afterAgenda(app);
 }
