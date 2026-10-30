@@ -766,7 +766,7 @@ function pacoteEdit(k, p){
 }
 
 /* ---------- orçamentos: até 3 versões por paciente (Pix, link Infiniti, maquininha PagSeguro); a escolhida vira pacotes na ficha ---------- */
-const garanteOrc = () => { if (!db.orc || !db.orc.por) db.orc = orcVazio(); if (!db.orc.taxas) db.orc.taxas = orcVazio().taxas; };
+const garanteOrc = () => { if (!db.orc || !db.orc.por) db.orc = orcVazio(); db.orc.taxas = {...orcVazio().taxas, ...(db.orc.taxas || {})}; };
 let orcSel = 0;
 function tabOrc(b, p){
   garanteOrc();
@@ -825,8 +825,9 @@ function orcTaxas(){
   garanteOrc();
   const bloco = (k, nome) => `<details class="group"><summary>${nome}<span>${Object.keys(db.orc.taxas[k] || {}).length} parcelamentos</span></summary><div class="form" style="padding:12px">${Array.from({length: 18}, (_, i) => field('tx-' + k + '-' + (i + 1), (i + 1) + 'x (%)', (db.orc.taxas[k] || {})[i + 1] ?? '', 'text', 'inputmode="decimal"')).join('')}</div></details>`;
   openSheet('Taxas do cartão', `<div class="form"><p class="sub" style="margin:0">Taxa de cada parcelamento. O valor no cartão sai do Pix dividido por (1 − taxa), para você receber o mesmo que no Pix. Em branco = usa o preço de cartão da Tabela de preços.</p>
-    ${bloco('link', 'Link de pagamento (Infiniti)')}${bloco('pag', 'Maquininha (PagSeguro)')}<div class="actions"><button class="btn" id="tx-ok" type="button">Salvar</button></div></div>`);
-  $('#tx-ok').onclick = () => { ['link', 'pag'].forEach(k => { const o = {}; for (let i = 1; i <= 18; i++) { const x = val('tx-' + k + '-' + i); if (x !== '' && numBR(x) >= 0 && numBR(x) < 100) o[i] = numBR(x); } db.orc.taxas[k] = o; }); save(); closeSheet(); toast('Taxas salvas'); };
+    <label class="check"><input type="checkbox" id="tx-nitro" ${db.orc.nitro ? 'checked' : ''}><span>Receber o link na hora (nitro). Desligado = recebimento em 1 dia útil</span></label>
+    ${bloco('link', 'Link Infiniti: recebimento em 1 dia útil')}${bloco('nitro', 'Link Infiniti: recebimento na hora (nitro)')}${bloco('pag', 'Maquininha (PagSeguro)')}<div class="actions"><button class="btn" id="tx-ok" type="button">Salvar</button></div></div>`);
+  $('#tx-ok').onclick = () => { db.orc.nitro = $('#tx-nitro').checked; ['link', 'nitro', 'pag'].forEach(k => { const o = {}; for (let i = 1; i <= 18; i++) { const x = val('tx-' + k + '-' + i); if (x !== '' && numBR(x) >= 0 && numBR(x) < 100) o[i] = numBR(x); } db.orc.taxas[k] = o; }); save(); closeSheet(); toast('Taxas salvas'); };
 }
 
 /* ---------- documentos: contrato com assinatura online (só com login; o modo de teste não guarda documentos) ---------- */

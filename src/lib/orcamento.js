@@ -5,9 +5,12 @@
 const num = v => { const n = Number(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : 0; };
 const r2 = n => Math.round(n * 100) / 100;
 export const CANAIS = [['pix', 'Pix ou dinheiro'], ['link', 'Link de pagamento (Infiniti)'], ['pag', 'Maquininha (PagSeguro)']];
-/* taxas padrão (%): link da Infiniti (tabela da operadora; 3x e 4x ajustadas pelos orçamentos reais da Rose: 7,01 e 7,91) e maquininha PagSeguro (4,99 à vista, 5,59 de 2x a 12x). A Rose ajusta em Ajustes. */
+/* taxas padrão (%) do link da Infiniti: recebimento em 1 dia útil (a da Rose; 3x e 4x ajustadas pelos orçamentos reais dela, 5x e 7x a 9x estimadas entre as faixas da tabela) e na hora (nitro). Maquininha PagSeguro: 4,99 à vista, 5,59 de 2x a 12x. */
 const faixa = (de, ate, t) => Object.fromEntries(Array.from({length: ate - de + 1}, (_, i) => [de + i, t]));
-export const vazio = () => ({taxas: {link: {1: 5.49, 2: 10.89, 3: 7.013, 4: 7.908, 6: 13.99, 10: 16.89, 11: 17.89, 12: 18.29}, pag: {1: 4.99, ...faixa(2, 12, 5.59)}}, por: {}});
+export const vazio = () => ({nitro: false, taxas: {
+  link: {1: 4.20, 2: 6.09, 3: 7.013, 4: 7.908, 5: 8.79, 6: 9.67, 7: 11.02, 8: 12.37, 9: 13.71, 10: 15.06, 11: 15.87, 12: 16.66},
+  nitro: {1: 5.49, 2: 10.89, 6: 13.99, 10: 16.89, 11: 17.89, 12: 18.29},
+  pag: {1: 4.99, ...faixa(2, 12, 5.59)}}, por: {}});
 export const novaVersao = () => ({itens: [], pix: null, entrada: 0, link: {par: 1, total: null}, pag: {par: 1, total: null}, fechado: ''});
 export const versoesDe = (orc, pid) => { const por = orc.por[pid] || (orc.por[pid] = []); while (por.length < 3) por.push(novaVersao()); return por; };
 
@@ -21,7 +24,7 @@ export const nomeItem = (it, services) => it.nome || ((services.find(x => x.id =
 export function totalCanal(v, canal, orc, services){
   if (canal === 'pix') return totalPix(v);
   const c = v[canal]; if (c.total != null && c.total !== '') return r2(num(c.total));
-  const tx = orc.taxas[canal] && orc.taxas[canal][c.par];
+  const tab = canal === 'link' && orc.nitro ? 'nitro' : canal, tx = orc.taxas[tab] && orc.taxas[tab][c.par];
   if (tx != null && tx !== '') return r2(totalPix(v) / (1 - num(tx) / 100));
   return Math.round(v.itens.reduce((t, i) => { const s = services.find(x => x.id === i.sid); return t + (s && s.card != null && s.card !== '' ? num(s.card) * num(i.ses) : num(i.pix)); }, 0));
 }
