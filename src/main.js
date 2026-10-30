@@ -395,16 +395,38 @@ function tabAtend(b, p){
   $('#at-new').onclick = () => atendForm(p);
   $$('[data-e]', b).forEach(x => x.onclick = () => atendForm(p, p.atend.find(a => a.id === x.dataset.e)));
 }
+/* escolha de serviço por busca: digita e a lista filtra (sem acento, várias palavras); o id escolhido fica num campo oculto com o id pedido */
+const semAcento = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const svcPicker = (id, sel) => `<div class="f svcp"><label for="${id}-q">Serviço</label><input type="hidden" id="${id}" value="${esc(sel || '')}">
+  <input id="${id}-q" type="search" class="svcp-q" placeholder="Digite para buscar o serviço" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="${id}-l" value="${esc((svc(sel) || {}).nome || '')}"><div class="svcp-l" id="${id}-l" role="listbox" hidden></div></div>`;
+function svcPickerBind(id){
+  const q = $('#' + id + '-q'), h = $('#' + id), l = $('#' + id + '-l'); let ativo = -1, achados = [];
+  const fecha = () => { l.hidden = true; q.setAttribute('aria-expanded', 'false'); ativo = -1; };
+  const mostra = () => { const t = semAcento(q.value).split(/\s+/).filter(Boolean), sel = svc(h.value);
+    achados = db.services.filter(s => t.every(w => semAcento(s.nome + ' ' + s.cat).includes(w))).slice(0, 40);
+    l.innerHTML = achados.length ? achados.map((s, i) => `<div class="svcp-o" role="option" data-i="${i}" aria-selected="${sel && s.id === sel.id}"><span>${esc(s.nome)}</span><small>${esc(s.cat)}</small></div>`).join('') : '<div class="svcp-vazio">Nenhum serviço com esse nome.</div>';
+    l.hidden = false; q.setAttribute('aria-expanded', 'true'); ativo = -1; };
+  const escolhe = i => { const s = achados[i]; if (!s) return; h.value = s.id; q.value = s.nome; fecha(); h.dispatchEvent(new Event('change')); };
+  const marca = () => $$('.svcp-o', l).forEach((o, i) => { o.classList.toggle('on', i === ativo); if (i === ativo) o.scrollIntoView({block: 'nearest'}); });
+  q.addEventListener('focus', () => { q.select(); mostra(); });
+  q.addEventListener('input', () => { if (h.value) { h.value = ''; h.dispatchEvent(new Event('change')); } mostra(); });
+  q.addEventListener('keydown', e => { if (e.key === 'ArrowDown') { e.preventDefault(); if (l.hidden) mostra(); ativo = Math.min(achados.length - 1, ativo + 1); marca(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); ativo = Math.max(0, ativo - 1); marca(); }
+    else if (e.key === 'Enter' && !l.hidden) { e.preventDefault(); escolhe(ativo >= 0 ? ativo : achados.length === 1 ? 0 : -1); }
+    else if (e.key === 'Escape') fecha(); });
+  l.addEventListener('pointerdown', e => { const o = e.target.closest('.svcp-o'); if (!o) return; e.preventDefault(); escolhe(+o.dataset.i); });
+  q.addEventListener('blur', () => { fecha(); const s = svc(h.value); if (s) q.value = s.nome; });
+}
 function atendForm(p, a){
   const e = !!a; a = a || {data: today(), servicoId: '', regiao: '', produto: '', lote: '', sessao: '', valor: '', evolucao: '', retorno: ''};
-  const opts = CATS.map(c => `<optgroup label="${esc(c)}">${db.services.filter(s => s.cat === c).map(s => `<option value="${s.id}" ${s.id === a.servicoId ? 'selected' : ''}>${esc(s.nome)}</option>`).join('')}</optgroup>`).join('');
   openSheet(e ? 'Editar atendimento' : 'Novo atendimento', `<div class="form">${field('x-data', 'Data', a.data, 'date')}
-    <div class="f"><label for="x-svc">Serviço</label><select id="x-svc"><option value="">Escolha um serviço</option>${opts}</select></div>
+    ${svcPicker('x-svc', a.servicoId)}
     ${field('x-reg', 'Região tratada', a.regiao)}
     <div class="two">${field('x-prod', 'Produto', a.produto)}${field('x-lote', 'Lote', a.lote)}</div>
     <div class="two">${field('x-ses', 'Sessão', a.sessao, 'text', 'placeholder="ex.: 3 de 10"')}${field('x-val', 'Valor cobrado (R$)', a.valor, 'text', 'inputmode="decimal"')}</div>
     ${area('x-evo', 'Evolução', a.evolucao)}${field('x-ret', 'Retorno previsto', a.retorno, 'date')}<p class="sub" id="x-aviso" role="status" style="margin:0;color:var(--warn)"></p>
     <div class="actions"><button class="btn" id="x-ok" type="button">Salvar</button>${e ? '<button class="btn danger" id="x-del" type="button">Excluir</button>' : ''}</div></div>`);
+  svcPickerBind('x-svc');
   let retTouched = e, valTouched = e;
   $('#x-ret').oninput = () => retTouched = true; $('#x-val').oninput = () => valTouched = true;
   const sync = () => { const s = svc($('#x-svc').value); if (!s) return; if (!valTouched && s.pix != null) $('#x-val').value = s.pix; if (!retTouched) $('#x-ret').value = addDays($('#x-data').value || today(), s.ret); };
@@ -640,14 +662,14 @@ function viewAgenda(app){
 function agNovo(pid, dia){
   const p0 = pid ? pacDe(pid) : null, lista = [...db.patients].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   const optsP = q => lista.filter(p => !q || p.nome.toLowerCase().includes(q.toLowerCase())).slice(0, 60).map(p => `<option value="${p.id}">${esc(p.nome)}</option>`).join('');
-  const optsS = CATS.map(c => `<optgroup label="${esc(c)}">${db.services.filter(s => s.cat === c).map(s => `<option value="${s.id}">${esc(s.nome)}</option>`).join('')}</optgroup>`).join('');
   openSheet('Novo agendamento', `<div class="form">
     ${p0 ? `<p class="t" style="margin:0;font-weight:700">${esc(p0.nome)}</p>` : `${field('a-q', 'Buscar paciente', '', 'search')}<div class="f"><label for="a-pac">Paciente</label><select id="a-pac">${optsP('')}</select></div>`}
-    <div class="f"><label for="a-svc">Serviço</label><select id="a-svc"><option value="">Escolha um serviço</option>${optsS}</select></div>
+    ${svcPicker('a-svc', '')}
     <div class="two">${field('a-dia', 'Data', dia || today(), 'date')}${field('a-hora', 'Hora', '09:00', 'time')}</div>
     ${field('a-dur', 'Duração (min)', 60, 'number', 'inputmode="numeric" min="5" step="5"')}${area('a-obs', 'Observações')}
     <p class="sub" id="a-aviso" role="status" style="margin:0;color:var(--warn)"></p>
     <div class="actions"><button class="btn" id="a-ok" type="button">Agendar</button></div></div>`);
+  svcPickerBind('a-svc');
   const cur = () => p0 || pacDe(val('a-pac')), aviso = () => { $('#a-aviso').textContent = agAvisos(cur(), val('a-dia'), val('a-hora'), +val('a-dur') || 30); };
   if (!p0) $('#a-q').oninput = () => { $('#a-pac').innerHTML = optsP(val('a-q')); aviso(); };
   ['a-pac', 'a-dia', 'a-hora', 'a-dur'].forEach(id => { const e = $('#' + id); if (e) e.addEventListener('input', aviso); });
@@ -713,9 +735,8 @@ function tabPacotes(b, p){
   $$('[data-del]', b).forEach(x => arm(x, () => { db.pacotes = db.pacotes.filter(k => k.id !== x.dataset.del); save(); tabPacotes(b, p); }));
 }
 function pacoteForm(p){
-  const opts = CATS.map(c => `<optgroup label="${esc(c)}">${db.services.filter(s => s.cat === c).map(s => `<option value="${s.id}">${esc(s.nome)}</option>`).join('')}</optgroup>`).join('');
   openSheet('Novo pacote', `<div class="form">
-    <div class="f"><label for="k-svc">Serviço</label><select id="k-svc"><option value="">Escolha um serviço</option>${opts}</select></div>
+    ${svcPicker('k-svc', '')}
     <div class="f"><label for="k-opc">Pacote do catálogo</label><select id="k-opc"><option value="">Outro (preencher abaixo)</option></select></div>
     <div class="two">${field('k-ses', 'Sessões', '', 'number', 'inputmode="numeric" min="1"')}${field('k-val', 'Valor total (R$)', '', 'text', 'inputmode="decimal"')}</div>
     <div class="two">${select('k-forma', 'Forma de pagamento', FORMAS)}${field('k-par', 'Parcelas', 1, 'number', 'inputmode="numeric" min="1" max="24"')}</div>
@@ -723,6 +744,7 @@ function pacoteForm(p){
     <label class="check"><input type="checkbox" id="k-pago1"><span>A primeira parcela já foi recebida</span></label>
     <p class="sub" id="k-prev" style="margin:0"></p>
     <div class="actions"><button class="btn" id="k-ok" type="button">Salvar pacote</button></div></div>`);
+  svcPickerBind('k-svc');
   const prev = () => { const v = numBR(val('k-val')), n = Math.floor(+val('k-par')); const ok = v >= 0 && n >= 1 && n <= 24 && val('k-venc');
     $('#k-prev').textContent = ok ? (() => { const ps = parcelas(v, n, val('k-venc'), false); return n + (n === 1 ? ' parcela de ' : ' parcelas de ') + money(ps[0].valor) + (n > 1 ? ', de ' + fmtD(ps[0].venc).slice(0, 5) + ' a ' + fmtD(ps[n - 1].venc).slice(0, 5) : ', vence ' + fmtD(ps[0].venc).slice(0, 5)); })() : ''; };
   $('#k-svc').onchange = () => { const s = svc(val('k-svc')); $('#k-opc').innerHTML = '<option value="">Outro (preencher abaixo)</option>' + ((s && s.pacotes) || []).map((o, i) => `<option value="${i}">${o[0]} sessões · ${money(o[1])}</option>`).join(''); };

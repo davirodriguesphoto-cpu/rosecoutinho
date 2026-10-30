@@ -584,3 +584,12 @@ body{overflow-x:visible}
 .gaveta[open] summary .ico{transform:rotate(90deg)}
 .gaveta>div{padding:0 18px 18px}
 .gaveta .g-card{background:none;border:0;box-shadow:none;padding:0;margin:0;-webkit-backdrop-filter:none;backdrop-filter:none}
+
+/* escolha de serviço por busca (agendamento, atendimento e pacote) */
+.svcp-q{background:var(--field);border:1px solid var(--sep);border-radius:999px;padding:12px 18px}
+.svcp-l{margin-top:8px;max-height:min(44vh,300px);overflow-y:auto;overscroll-behavior:contain;border:1px solid var(--glassb);border-radius:16px;background:var(--glass2);padding:4px}
+.svcp-o{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:11px 12px;border-radius:12px;cursor:pointer;font-weight:600}
+.svcp-o small{color:var(--muted,inherit);opacity:.7;font-weight:500;font-size:12px;white-space:nowrap}
+.svcp-o:hover,.svcp-o.on{background:var(--glass)}
+.svcp-o[aria-selected="true"]{color:var(--link)}
+.svcp-vazio{padding:12px;opacity:.7}
