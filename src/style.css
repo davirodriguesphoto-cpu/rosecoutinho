@@ -550,3 +550,7 @@ label.btn[aria-disabled="true"]{opacity:.6;pointer-events:none}
 .dl.longo{display:block}
 .dl.longo dt{margin-bottom:8px}
 .dl.longo dd{text-align:left;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6;max-height:60vh;overflow:auto;margin:0}
+
+/* topo: o texto que rola por baixo nao pode aparecer atraves do cabecalho (faixa estranha) */
+.top::before{background:color-mix(in srgb,var(--bg) 94%,transparent);-webkit-mask-image:linear-gradient(#000 82%,transparent);mask-image:linear-gradient(#000 82%,transparent)}
+body::before{background:var(--bg);-webkit-backdrop-filter:none;backdrop-filter:none;-webkit-mask-image:none;mask-image:none}
