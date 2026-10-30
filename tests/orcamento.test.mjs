@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { vazio, novaVersao, linhaPix, totalPix, totalCanal, porParcela, mensagem, fechar } from '../src/lib/orcamento.js';
+import { vazio, novaVersao, linhaPix, totalPix, totalCanal, taxaDe, porParcela, mensagem, fechar } from '../src/lib/orcamento.js';
 
 const services = [{id: 'a', nome: 'Drenagem', pix: 100, card: 110, pacotes: [[10, 900]]}, {id: 'b', nome: 'Toxina', pix: 1000, card: 1100, pacotes: []}];
 const orc = vazio(), v = novaVersao();
@@ -19,7 +19,12 @@ ok('reproduz os orçamentos reais da Rose no link (3x e 4x)', () => {
   const o = vazio(), q = (pix, par) => { const w = novaVersao(); w.pix = pix; w.link.par = par; w.itens.push({sid: '', nome: 'x', ses: 1, pix: 0}); return porParcela(totalCanal(w, 'link', o, services), 0, par); };
   assert.equal(q(510, 3), 182.82); assert.equal(q(410, 3), 146.97); assert.equal(q(660, 4), 179.17);
 });
-ok('recebimento na hora (nitro) usa a outra tabela', () => { const o = vazio(); o.nitro = true; const w = novaVersao(); w.pix = 1000; assert.equal(totalCanal(w, 'link', o, services), Math.round(100000 / (1 - 0.0549)) / 100); });
+ok('recebimento na hora (nitro), escolhido no orçamento, usa a outra tabela', () => { const o = vazio(), w = novaVersao(); w.nitro = true; w.pix = 1000; assert.equal(totalCanal(w, 'link', o, services), Math.round(100000 / (1 - 0.0549)) / 100); });
+ok('faixas que faltam na tabela são interpoladas; fora das pontas não há taxa', () => {
+  const o = vazio(); assert.equal(taxaDe(o.taxas.nitro, 6), 13.99); assert.ok(Math.abs(taxaDe(o.taxas.nitro, 8) - 15.44) < 1e-9); assert.equal(taxaDe(o.taxas.nitro, 15), null);
+  const w = novaVersao(); w.nitro = true; w.pix = 510; w.link.par = 3; w.itens.push({sid: '', nome: 'x', ses: 1, pix: 0}); assert.ok(totalCanal(w, 'link', o, services) > 510);
+  w.link.par = 15; assert.equal(totalCanal(w, 'link', o, services), 510);
+});
 ok('parcela = (total - entrada) / parcelas', () => assert.equal(porParcela(2090, 290, 6), 300));
 ok('mensagem no jeito da Rose: opção, linhas com quantidade, Pix e parcelas', () => {
   const m = mensagem('Ana', [v, novaVersao(), novaVersao()], orc, services);

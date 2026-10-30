@@ -773,7 +773,8 @@ function tabOrc(b, p){
   const vs = versoesDe(db.orc, p.id), v = vs[orcSel], tot = c => totalCanal(v, c, db.orc, db.services), t = today();
   const linha = (it, i) => { return `<div class="item static"><div class="grow"><span class="t">${esc(nomeItem(it, db.services))}</span><div class="m">${it.ses} ${+it.ses === 1 ? 'sessão' : 'sessões'}${+it.pix ? ' · ' + brl(it.pix) + ' no Pix' : ''}</div></div><button class="btn ghost small" data-rm="${i}" type="button">Tirar</button></div>`; };
   const cartao = (k, nome) => { const c = v[k], par = Math.max(1, Math.floor(+c.par) || 1), total = tot(k);
-    return `<div class="card form"><div><span class="t" style="font-weight:700">${nome}</span><p class="sub" style="margin:0">${v.itens.length ? par + 'x de ' + brl(porParcela(total, v.entrada, par)) + (+v.entrada ? ' + entrada de ' + brl(v.entrada) : '') + ' · total ' + brl(total) : 'Adicione procedimentos'}</p></div>
+    const recebe = k === 'link' ? `<div class="seg" role="group" aria-label="Recebimento do link" style="align-self:flex-start"><button type="button" data-rec="dia" aria-pressed="${!v.nitro}">1 dia útil</button><button type="button" data-rec="nitro" aria-pressed="${!!v.nitro}">Nitro (na hora)</button></div>` : '';
+    return `<div class="card form"><div><span class="t" style="font-weight:700">${nome}</span><p class="sub" style="margin:0">${v.itens.length ? par + 'x de ' + brl(porParcela(total, v.entrada, par)) + (+v.entrada ? ' + entrada de ' + brl(v.entrada) : '') + ' · total ' + brl(total) : 'Adicione procedimentos'}</p></div>${recebe}
       <div class="two">${field('o-par-' + k, 'Parcelas', par, 'number', 'inputmode="numeric" min="1" max="18"')}${field('o-tot-' + k, 'Total (à mão)', c.total == null ? '' : c.total, 'text', 'inputmode="decimal" placeholder="' + (v.itens.length ? total : 'automático') + '"')}</div></div>`; };
   const msg = orcMensagem(firstName(p.nome), vs, db.orc, db.services), wa = msg && waLink(p, msg, {});
   b.innerHTML = `<div class="chips grade" role="tablist" aria-label="Orçamento">${[0, 1, 2].map(i => `<button class="chip" role="tab" data-o="${i}" aria-selected="${i === orcSel}" type="button">Orçamento 0${i + 1}${vs[i].itens.length ? ' · ' + brl(totalPix(vs[i])) : ''}</button>`).join('')}</div>
@@ -799,6 +800,7 @@ function tabOrc(b, p){
     v.itens.push({sid: s ? s.id : '', nome: livre || '', ses, pix}); salva(); };
   $('#o-pixt').onchange = () => { const x = val('o-pixt'); v.pix = x === '' ? null : numBR(x); if (v.pix !== null && !(v.pix >= 0)) v.pix = null; salva(); };
   $('#o-ent').onchange = () => { const e = val('o-ent') === '' ? 0 : numBR(val('o-ent')); if (!(e >= 0)) return toast('Entrada inválida'); v.entrada = e; salva(); };
+  $$('[data-rec]', b).forEach(x => x.onclick = () => { v.nitro = x.dataset.rec === 'nitro'; salva(); });
   ['link', 'pag'].forEach(k => { $('#o-par-' + k).onchange = () => { v[k].par = Math.min(18, Math.max(1, Math.floor(+val('o-par-' + k)) || 1)); salva(); };
     $('#o-tot-' + k).onchange = () => { const x = val('o-tot-' + k); v[k].total = x === '' ? null : numBR(x); if (v[k].total !== null && !(v[k].total >= 0)) v[k].total = null; salva(); }; });
   const w = $('#o-wa'); if (w) w.onclick = () => registrarEnvio(p.id, 'orcamento', 'orcamento:' + Date.now(), msg);
@@ -824,10 +826,9 @@ function orcFecha(p, v, depois){
 function orcTaxas(){
   garanteOrc();
   const bloco = (k, nome) => `<details class="group"><summary>${nome}<span>${Object.keys(db.orc.taxas[k] || {}).length} parcelamentos</span></summary><div class="form" style="padding:12px">${Array.from({length: 18}, (_, i) => field('tx-' + k + '-' + (i + 1), (i + 1) + 'x (%)', (db.orc.taxas[k] || {})[i + 1] ?? '', 'text', 'inputmode="decimal"')).join('')}</div></details>`;
-  openSheet('Taxas do cartão', `<div class="form"><p class="sub" style="margin:0">Taxa de cada parcelamento. O valor no cartão sai do Pix dividido por (1 − taxa), para você receber o mesmo que no Pix. Em branco = usa o preço de cartão da Tabela de preços.</p>
-    <label class="check"><input type="checkbox" id="tx-nitro" ${db.orc.nitro ? 'checked' : ''}><span>Receber o link na hora (nitro). Desligado = recebimento em 1 dia útil</span></label>
+  openSheet('Taxas do cartão', `<div class="form"><p class="sub" style="margin:0">Taxa de cada parcelamento. O valor no cartão sai do Pix dividido por (1 − taxa), para você receber o mesmo que no Pix. Em cada orçamento você escolhe se o link é de 1 dia útil ou nitro. Em branco = usa o preço de cartão da Tabela de preços.</p>
     ${bloco('link', 'Link Infiniti: recebimento em 1 dia útil')}${bloco('nitro', 'Link Infiniti: recebimento na hora (nitro)')}${bloco('pag', 'Maquininha (PagSeguro)')}<div class="actions"><button class="btn" id="tx-ok" type="button">Salvar</button></div></div>`);
-  $('#tx-ok').onclick = () => { db.orc.nitro = $('#tx-nitro').checked; ['link', 'nitro', 'pag'].forEach(k => { const o = {}; for (let i = 1; i <= 18; i++) { const x = val('tx-' + k + '-' + i); if (x !== '' && numBR(x) >= 0 && numBR(x) < 100) o[i] = numBR(x); } db.orc.taxas[k] = o; }); save(); closeSheet(); toast('Taxas salvas'); };
+  $('#tx-ok').onclick = () => { ['link', 'nitro', 'pag'].forEach(k => { const o = {}; for (let i = 1; i <= 18; i++) { const x = val('tx-' + k + '-' + i); if (x !== '' && numBR(x) >= 0 && numBR(x) < 100) o[i] = numBR(x); } db.orc.taxas[k] = o; }); save(); closeSheet(); toast('Taxas salvas'); };
 }
 
 /* ---------- documentos: contrato com assinatura online (só com login; o modo de teste não guarda documentos) ---------- */
