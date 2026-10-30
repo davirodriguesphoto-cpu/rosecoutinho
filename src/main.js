@@ -22,6 +22,9 @@ const fmtD = s => s ? s.split('-').reverse().join('/') : '';
 const money = n => n == null || n === '' ? 'a definir' : 'R$ ' + Number(n).toLocaleString('pt-BR', {maximumFractionDigits: 2});
 const initials = n => n.trim().split(/\s+/).slice(0,2).map(p => p[0]).join('').toUpperCase();
 const age = s => { if (!s) return ''; const d = parse(s), t = new Date(); let a = t.getFullYear()-d.getFullYear(); if (t < new Date(t.getFullYear(), d.getMonth(), d.getDate())) a--; return a >= 0 && a < 120 ? a + ' anos' : ''; };
+/* idade: da data de nascimento; sem ela, da idade informada na ficha + os anos que passaram desde a data dela */
+const idadeDe = p => { const a = age(p.nasc); if (a || !p.idadeRef) return a; const r = parse(p.idadeRefEm || today()), t = new Date(); let n = Number(p.idadeRef) + t.getFullYear() - r.getFullYear(); if (t < new Date(t.getFullYear(), r.getMonth(), r.getDate())) n--; return n >= 0 && n < 120 ? n + ' anos' : ''; };
+const nomeAt = (a, s) => s ? s.nome : (a.produto || (a.evolucao || '').split('\n')[0].trim().slice(0, 40) || 'Atendimento');
 
 /* ---------- dados (localStorage, com cópia em memória) ---------- */
 let mem = null;
@@ -264,9 +267,9 @@ function viewPaciente(app, p){
   const zap = waLink(p, '', {}), dd = d => DIAS_SEM[(parse(d).getDay() + 6) % 7] + ', ' + +d.slice(8) + ' ' + MES[+d.slice(5, 7) - 1];
   app.innerHTML = `<div class="fi-lado">
     <div><a href="#pacientes" class="sub" style="text-decoration:none">&larr; Pacientes</a></div>
-    <div class="head"><div style="display:flex;gap:12px;align-items:center;min-width:0"><div class="avatar" style="width:48px;height:48px;font-size:17px">${esc(initials(p.nome))}</div><div style="min-width:0"><h1 style="font-size:20px;overflow-wrap:anywhere">${esc(p.nome)}</h1><p class="sub">${[esc(age(p.nasc)), p.tel ? `<a href="${esc(telHref(p.tel))}">${esc(p.tel)}</a>` : ''].filter(Boolean).join(' · ')}</p></div></div>
+    <div class="head"><div style="display:flex;gap:12px;align-items:center;min-width:0"><div class="avatar" style="width:48px;height:48px;font-size:17px">${esc(initials(p.nome))}</div><div style="min-width:0"><h1 style="font-size:20px;overflow-wrap:anywhere">${esc(p.nome)}</h1><p class="sub">${[esc(idadeDe(p)), p.tel ? `<a href="${esc(telHref(p.tel))}">${esc(p.tel)}</a>` : ''].filter(Boolean).join(' · ')}</p></div></div>
       <div class="actions">${zap ? `<a class="btn ghost small" href="${zap}" target="_blank" rel="noopener">${ICO_BALAO}WhatsApp</a>` : ''}<button class="btn small" id="p-ag" type="button">Agendar</button></div></div>
-    <p class="ctx"><span>Próximo: <b>${prox ? dd(agDia(prox.ini)) + ' · ' + agHora(prox.ini) : 'sem horário marcado'}</b></span><span>Último: <b>${ult ? esc((us ? us.nome : 'Atendimento') + ' · ' + fmtD(ult.data).slice(0, 5)) : 'nenhum atendimento'}</b></span></p>
+    <p class="ctx"><span>Próximo: <b>${prox ? dd(agDia(prox.ini)) + ' · ' + agHora(prox.ini) : 'sem horário marcado'}</b></span><span>Último: <b>${ult ? esc(nomeAt(ult, us) + ' · ' + fmtD(ult.data).slice(0, 5)) : 'nenhum atendimento'}</b></span></p>
     <div class="chips" role="tablist" aria-label="Seções da ficha">${GRUPOS.map(g => `<button class="chip" role="tab" data-g="${g[0]}" aria-selected="${g === grupo}" type="button">${g[1]}</button>`).join('')}</div></div>
     <div class="fi-corpo">${grupo[2].length > 1 ? `<div class="chips" role="tablist" aria-label="${esc(grupo[1])}">${grupo[2].map(k => `<button class="chip peq" role="tab" data-t="${k}" aria-selected="${k === ptab}" type="button">${rot(k)}${k === 'atend' ? ' (' + p.atend.length + ')' : ''}</button>`).join('')}</div>` : ''}
     <div id="pbody"></div></div>`;
@@ -280,10 +283,12 @@ function tabDados(b, p){
   if (dadosEdit) return dadosForm(b, p);
   const img = p.img === 'sim' ? 'Autorizado' : p.img === 'nao' ? 'Não autorizado' : '';
   const linha = (l, v) => `<div class="dl"><dt>${l}</dt><dd>${v ? v : '<span class="vazio">não informado</span>'}</dd></div>`;
+  const ult = p.atend.length ? lastAtend(p) : null, us = ult && svc(ult.servicoId);
   const faltam = [!p.cpf && 'CPF', !p.rg && 'RG', !p.end && 'endereço', !p.cep && 'CEP'].filter(Boolean);
   b.innerHTML = `<div class="card"><dl class="dados">
     ${linha('WhatsApp', p.tel && `<a href="${esc(telHref(p.tel))}">${esc(p.tel)}</a>`)}
-    ${linha('Nascimento', p.nasc && esc(fmtD(p.nasc) + (age(p.nasc) ? ' · ' + age(p.nasc) : '')))}
+    ${linha('Nascimento', p.nasc && esc(fmtD(p.nasc)))}${linha('Idade', idadeDe(p) && esc(idadeDe(p) + (p.nasc ? '' : ' (da ficha, atualiza sozinha)')))}
+    ${linha('Profissão', esc(p.prof || ''))}${linha('Último atendimento', ult && esc(nomeAt(ult, us) + ' · ' + fmtD(ult.data)))}
     ${linha('CPF', esc(p.cpf || ''))}${linha('RG', esc(p.rg || ''))}
     ${linha('Endereço', esc([p.end, p.cep].filter(Boolean).join(' · ')))}
     ${linha('Instagram', esc(p.insta || ''))}${linha('Como conheceu', esc(p.origem || ''))}
@@ -297,6 +302,7 @@ function tabDados(b, p){
 function dadosForm(b, p){
   b.innerHTML = `<div class="card form">${field('d-nome', 'Nome completo', p.nome)}
     <div class="two">${field('d-tel', 'WhatsApp', p.tel, 'tel', 'inputmode="tel"')}${field('d-nasc', 'Nascimento', p.nasc, 'date')}</div>
+    <div class="two">${field('d-prof', 'Profissão', p.prof)}${field('d-idade', 'Idade (se não souber o nascimento)', p.idadeRef, 'number', 'inputmode="numeric" min="0" max="119"')}</div>
     <div class="two">${field('d-cpf', 'CPF', p.cpf, 'text', 'inputmode="numeric"')}${field('d-rg', 'RG', p.rg)}</div>
     <div class="two">${field('d-end', 'Endereço', p.end)}${field('d-cep', 'CEP', p.cep, 'text', 'inputmode="numeric"')}</div>
     ${select('d-img', 'Uso de imagem em publicidade' + (p.img && p.imgEm ? ' (respondido em ' + fmtD(p.imgEm) + ')' : ''), [['', 'Não informado'], ['sim', 'Autorizado'], ['nao', 'Não autorizado']], p.img || '')}
@@ -305,7 +311,8 @@ function dadosForm(b, p){
     <label class="check"><input type="checkbox" id="d-lgpd" ${p.lgpd && p.lgpd.ok ? 'checked' : ''}><span>Paciente autorizou o uso dos dados e das imagens (termo assinado)${p.lgpd && p.lgpd.ok ? `<br><span class="sub">Registrado em ${fmtD(p.lgpd.data)}</span>` : ''}</span></label>
     <div class="actions"><button class="btn" id="d-ok" type="button">Salvar</button><button class="btn ghost" id="d-cancel" type="button">Cancelar</button><button class="btn danger" id="d-del" type="button">Excluir paciente</button></div></div>`;
   $('#d-ok').onclick = () => { const nome = val('d-nome'); if (!nome) return toast('Informe o nome'); if (!cpfValido(val('d-cpf'))) return toast('CPF inválido: confira os números');
-    const ok = $('#d-lgpd').checked; Object.assign(p, {nome, tel: val('d-tel'), nasc: val('d-nasc'), cpf: val('d-cpf'), rg: val('d-rg'), end: val('d-end'), cep: val('d-cep'), img: val('d-img'), imgEm: val('d-img') === (p.img || '') ? (p.imgEm || '') : (val('d-img') ? today() : ''), insta: val('d-insta'), origem: val('d-origem'), obs: val('d-obs')});
+    const ok = $('#d-lgpd').checked; const ni = val('d-idade'); if (String(ni) !== String(p.idadeRef || '')) { p.idadeRef = ni ? +ni : ''; p.idadeRefEm = ni ? today() : ''; }
+    Object.assign(p, {nome, prof: val('d-prof'), tel: val('d-tel'), nasc: val('d-nasc'), cpf: val('d-cpf'), rg: val('d-rg'), end: val('d-end'), cep: val('d-cep'), img: val('d-img'), imgEm: val('d-img') === (p.img || '') ? (p.imgEm || '') : (val('d-img') ? today() : ''), insta: val('d-insta'), origem: val('d-origem'), obs: val('d-obs')});
     p.lgpd = {ok, data: ok ? ((p.lgpd && p.lgpd.ok && p.lgpd.data) || today()) : ''}; dadosEdit = false; save(); route(); toast('Salvo'); };
   $('#d-cancel').onclick = () => { dadosEdit = false; tabDados(b, p); };
   arm($('#d-del'), () => { db.patients = db.patients.filter(x => x.id !== p.id); db.msgs = db.msgs.filter(m => m.pid !== p.id); db.agenda = db.agenda.filter(a => a.pid !== p.id); db.pacotes = db.pacotes.filter(k => k.pid !== p.id); save(); location.hash = '#pacientes'; });
@@ -447,7 +454,7 @@ function lembretesData(){
   const t = today(), D = dashData(), out = [];
   const enviado = (pid, chave) => db.msgs.some(m => m.pid === pid && m.chave === chave);
   const add = (p, tipo, chave, det, extra = {}) => out.push({p, tipo, chave, det, sent: enviado(p.id, chave), ...extra});
-  db.patients.forEach(p => { if (p.nasc && p.nasc.slice(5) === t.slice(5)) add(p, 'aniversario', 'aniversario:' + t.slice(0, 4), 'faz aniversário hoje' + (age(p.nasc) ? ' (' + age(p.nasc) + ')' : '')); });
+  db.patients.forEach(p => { if (p.nasc && p.nasc.slice(5) === t.slice(5)) add(p, 'aniversario', 'aniversario:' + t.slice(0, 4), 'faz aniversário hoje' + (idadeDe(p) ? ' (' + idadeDe(p) + ')' : '')); });
   db.patients.filter(p => p.atend.length).forEach(p => { const l = lastAtend(p), s = svc(l.servicoId);
     if (diffDays(t, l.data) < SUMIDA_DIAS && l.retorno && l.retorno <= addDays(t, 3))
       add(p, 'manutencao', 'manutencao:' + l.id, (s ? s.nome : 'Retorno') + (l.retorno < t ? ' · venceu há ' + diffDays(t, l.retorno) + ' dias' : l.retorno === t ? ' · é hoje' : ' · em ' + fmtD(l.retorno).slice(0, 5)), {servico: s && s.nome, data: l.retorno, aviso: cicloAviso(p, l.retorno)}); });
@@ -529,7 +536,7 @@ function agFatos(a){
   const fato = (l, v) => `<div><small>${l}</small><b>${v}</b></div>`;
   const lembrar = agLembravel(a) && !agLembrado(a) ? `<a class="btn small" data-lembrar="${a.id}" href="${waLink(p, tplOf('procedimento'), {servico: L.s && L.s.nome, data: agDia(a.ini), hora: agHora(a.ini)})}" target="_blank" rel="noopener">${ICO_BALAO}Lembrar pelo WhatsApp</a>`
     : zap ? `<a class="btn ghost small" href="${zap}" target="_blank" rel="noopener">${ICO_BALAO}WhatsApp</a>` : '';
-  return `<div class="fa">${fato('Idade', esc(age(p.nasc) || 'não informada'))}${fato('Último', ult ? esc((us ? us.nome : 'Atendimento') + ' · ' + fmtD(ult.data).slice(0, 5)) : 'nenhum')}
+  return `<div class="fa">${fato('Idade', esc(idadeDe(p) || 'não informada'))}${fato('Último', ult ? esc(nomeAt(ult, us) + ' · ' + fmtD(ult.data).slice(0, 5)) : 'nenhum')}
     ${fato('Pacote', pk ? pk.usadas + ' de ' + pk.total + ' sessões' : 'sem pacote')}${fato('Parcela', parc ? esc(money(parc.valor) + ' · vence ' + fmtD(parc.venc).slice(0, 5)) : 'em dia')}
     ${fato('Ciclo', C.ativo ? 'média de ' + C.media + ' dias' : C.ini.length ? C.medidos + ' de ' + CICLOS_MIN + ' ciclos' : 'sem registro')}${fato('WhatsApp', p.tel ? esc(p.tel) : 'sem telefone')}</div>
     ${aviso ? `<div class="al">${esc(aviso)}</div>` : ''}${a.obs ? `<p class="sub" style="margin:0">Obs.: ${esc(a.obs)}</p>` : ''}

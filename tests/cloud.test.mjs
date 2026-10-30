@@ -127,3 +127,9 @@ function fakeAuth(st){
   assert.deepEqual(sb.calls, [['delete', 'lancamentos', 2], ['delete', 'pacotes_paciente', 1], ['delete', 'pacientes', 1]]); ok('pacotes e parcelas sincronizam e saem antes do paciente'); }
 
 console.log(`\n${n} testes passaram`);
+
+{ const p = {id: 'p9', nome: 'Z', tel: '', nasc: '', insta: '', origem: '', obs: '', lgpd: {ok: false, data: ''}, aval: {}, anam: {}, atend: [], prof: 'Nutricionista', idadeRef: 35, idadeRefEm: '2025-11-17'};
+  const row = toRows({services: [], patients: [p]}).pacientes[0];
+  assert.equal(row.profissao, 'Nutricionista'); assert.equal(row.idade_ref, 35); assert.equal(row.idade_ref_em, '2025-11-17');
+  const back = fromRows([], [row], []).patients[0];
+  assert.equal(back.prof, 'Nutricionista'); assert.equal(back.idadeRef, 35); assert.equal(back.idadeRefEm, '2025-11-17'); console.log('ok - profissão e idade da ficha vão e voltam'); }
