@@ -9,11 +9,15 @@ const ajuda = () => { let n = 0; return {pid: 'p', hoje: '2026-10-30', uid: () =
 
 ok('linha usa o pacote do catálogo quando as sessões batem, senão sessão × preço', () => { assert.equal(linhaPix(services[0], 10), 900); assert.equal(linhaPix(services[0], 3), 300); });
 ok('total Pix soma as linhas', () => assert.equal(totalPix(v), 1900));
-ok('taxa padrão da Stone à vista: Pix ÷ (1 - 2,99%)', () => assert.equal(totalCanal(v, 'stone', orc, services), Math.round(1900 / (1 - 0.0299))));
+ok('taxa padrão da Stone à vista: Pix ÷ (1 - 2,99%)', () => assert.equal(totalCanal(v, 'stone', orc, services), Math.round(190000 / (1 - 0.0299)) / 100));
 ok('sem taxa para o parcelamento cai no preço de cartão da tabela', () => { v.pag.par = 15; assert.equal(totalCanal(v, 'pag', orc, services), 1100 + 1100); v.pag.par = 1; });
 ok('taxa do parcelamento tem prioridade; total digitado vence a taxa', () => {
-  orc.taxas.stone[6] = 10; v.stone.par = 6; assert.equal(totalCanal(v, 'stone', orc, services), 2111);
+  orc.taxas.stone[6] = 10; v.stone.par = 6; assert.equal(totalCanal(v, 'stone', orc, services), 2111.11);
   v.stone.total = 2000; assert.equal(totalCanal(v, 'stone', orc, services), 2000); v.stone.total = null;
+});
+ok('reproduz os orçamentos reais da Rose no link (3x e 4x)', () => {
+  const o = vazio(), q = (pix, par) => { const w = novaVersao(); w.pix = pix; w.stone.par = par; w.itens.push({sid: '', nome: 'x', ses: 1, pix: 0}); return porParcela(totalCanal(w, 'stone', o, services), 0, par); };
+  assert.equal(q(510, 3), 182.82); assert.equal(q(410, 3), 146.97); assert.equal(q(660, 4), 179.17);
 });
 ok('parcela = (total - entrada) / parcelas', () => assert.equal(porParcela(2090, 290, 6), 300));
 ok('mensagem no jeito da Rose: opção, linhas com quantidade, Pix e parcelas', () => {

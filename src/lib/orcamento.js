@@ -5,9 +5,9 @@
 const num = v => { const n = Number(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : 0; };
 const r2 = n => Math.round(n * 100) / 100;
 export const CANAIS = [['pix', 'Pix ou dinheiro'], ['stone', 'Link de pagamento (Stone)'], ['pag', 'Maquininha (PagSeguro)']];
-/* taxas padrão (%): Stone 2,99 à vista e 3,49 de 2x a 18x; PagSeguro 4,99 à vista e 5,59 de 2x a 12x. A Rose ajusta em Ajustes. */
+/* taxas padrão (%): Stone 2,99 à vista e 3,49 de 2x a 18x (3x e 4x ajustadas pelos orçamentos reais da Rose: 7,01 e 7,91); PagSeguro 4,99 à vista e 5,59 de 2x a 12x. A Rose ajusta em Ajustes. */
 const faixa = (de, ate, t) => Object.fromEntries(Array.from({length: ate - de + 1}, (_, i) => [de + i, t]));
-export const vazio = () => ({taxas: {stone: {1: 2.99, ...faixa(2, 18, 3.49)}, pag: {1: 4.99, ...faixa(2, 12, 5.59)}}, por: {}});
+export const vazio = () => ({taxas: {stone: {1: 2.99, ...faixa(2, 18, 3.49), 3: 7.013, 4: 7.908}, pag: {1: 4.99, ...faixa(2, 12, 5.59)}}, por: {}});
 export const novaVersao = () => ({itens: [], pix: null, entrada: 0, stone: {par: 1, total: null}, pag: {par: 1, total: null}, fechado: ''});
 export const versoesDe = (orc, pid) => { const por = orc.por[pid] || (orc.por[pid] = []); while (por.length < 3) por.push(novaVersao()); return por; };
 
@@ -22,7 +22,7 @@ export function totalCanal(v, canal, orc, services){
   if (canal === 'pix') return totalPix(v);
   const c = v[canal]; if (c.total != null && c.total !== '') return r2(num(c.total));
   const tx = orc.taxas[canal] && orc.taxas[canal][c.par];
-  if (tx != null && tx !== '') return Math.round(totalPix(v) / (1 - num(tx) / 100));
+  if (tx != null && tx !== '') return r2(totalPix(v) / (1 - num(tx) / 100));
   return Math.round(v.itens.reduce((t, i) => { const s = services.find(x => x.id === i.sid); return t + (s && s.card != null && s.card !== '' ? num(s.card) * num(i.ses) : num(i.pix)); }, 0));
 }
 export const porParcela = (total, entrada, par) => r2(Math.max(0, total - num(entrada)) / (Math.max(1, Math.floor(num(par))) || 1));
