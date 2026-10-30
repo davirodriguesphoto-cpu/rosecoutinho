@@ -82,15 +82,18 @@ let ptab = 'dados';
 function route(){
   G.retornoGoogle();
   const h = location.hash.slice(1) || 'agenda';
-  const m = h.match(/^paciente-([\w-]+)$/);
-  const tab = m ? 'pacientes' : (['agenda','pacientes','precos','despesas','lembretes','financeiro'].includes(h) ? h : h === 'servicos' ? 'precos' : 'agenda');
+  const m = h.match(/^paciente-([\w-]+)$/), mo = h.match(/^orcamento-([\w-]+)$/);
+  const tab = m ? 'pacientes' : mo ? 'orcamentos' : (['agenda','pacientes','precos','despesas','lembretes','orcamentos','financeiro'].includes(h) ? h : h === 'servicos' ? 'precos' : 'agenda');
   $$('[data-tab]').forEach(a => a.dataset.tab === tab ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'));
+  const sn = $('#sino'); if (sn) tab === 'lembretes' ? sn.setAttribute('aria-current', 'page') : sn.removeAttribute('aria-current');
   const app = $('#app'); app.dataset.v = m ? 'ficha' : tab;
   if (m) { const p = db.patients.find(x => x.id === m[1]); p ? viewPaciente(app, p) : (location.hash = '#pacientes'); }
   else if (tab === 'pacientes') viewPacientes(app);
   else if (tab === 'precos') viewPrecos(app);
   else if (tab === 'despesas') viewDespesas(app);
   else if (tab === 'lembretes') viewLembretes(app);
+  else if (mo) viewOrcamento(app, mo[1]);
+  else if (tab === 'orcamentos') viewOrcamentos(app);
   else if (tab === 'agenda') viewAgenda(app);
   else if (tab === 'financeiro') viewFinanceiro(app);
   else viewAgenda(app);
@@ -154,11 +157,11 @@ const rankHtml = (rows, max) => rows.length ? `<div class="rank">${rows.map(r =>
 
 const saudacao = () => { const h = new Date().getHours(); return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'; };
 const ICO_SINO = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 17V11a6 6 0 0 1 12 0v6l1.5 2h-15z"/><path d="M10 21h4"/></svg>';
-/* número de lembretes pendentes na aba */
+/* número de lembretes pendentes no sino do topo */
 function badge(){
-  const a = $('.tabs a[data-tab="lembretes"]'); if (!a || !db.patients.length) return;
+  const a = $('#sino'); if (!a || !db.patients.length) return;
   const n = lembretesData().filter(x => !x.sent).length; let b = a.querySelector('.bdg');
-  if (!n) { if (b) b.remove(); a.removeAttribute('aria-label'); return; }
+  if (!n) { if (b) b.remove(); a.setAttribute('aria-label', 'Lembretes'); return; }
   if (!b) { b = document.createElement('span'); b.className = 'bdg'; b.setAttribute('aria-hidden', 'true'); a.append(b); }
   b.textContent = n > 99 ? '99+' : n; a.setAttribute('aria-label', 'Lembretes, ' + n + ' para enviar');
 }
@@ -766,7 +769,7 @@ function pacoteEdit(k, p){
 }
 
 /* ---------- orçamentos: até 3 versões por paciente (Pix, link Infiniti, maquininha PagSeguro); a escolhida vira pacotes na ficha ---------- */
-const garanteOrc = () => { if (!db.orc || !db.orc.por) db.orc = orcVazio(); db.orc.taxas = {...orcVazio().taxas, ...(db.orc.taxas || {})}; };
+const garanteOrc = () => { if (!db.orc || !db.orc.por) db.orc = orcVazio(); db.orc.taxas = {...orcVazio().taxas, ...(db.orc.taxas || {})}; db.orc.leads = db.orc.leads || {}; };
 let orcSel = 0;
 function tabOrc(b, p){
   garanteOrc();
@@ -788,7 +791,7 @@ function tabOrc(b, p){
     ${cartao('link', 'Link de pagamento (Infiniti)')}${cartao('pag', 'Maquininha (PagSeguro)')}
     <div class="actions">${wa ? `<a class="btn" id="o-wa" href="${wa}" target="_blank" rel="noopener">${ICO_BALAO}Enviar orçamentos por WhatsApp</a>` : `<span class="pill">${msg ? 'sem telefone' : 'preencha um orçamento'}</span>`}${v.itens.length && !v.fechado ? '<button class="btn ghost" id="o-fecha" type="button">Fechar este orçamento</button>' : ''}${v.itens.length ? '<button class="btn danger small" id="o-limpa" type="button">Limpar</button>' : ''}</div>
     <p class="src">O Pix vem da Tabela de preços (ou do pacote do catálogo). O cartão é calculado com as taxas de Ajustes, para você receber o mesmo que no Pix; digite o total à mão para mudar. Ao fechar, cada procedimento vira um pacote com a entrada já paga.</p>`;
-  const salva = () => { save(); tabOrc(b, p); };
+  const salva = () => { v.em = new Date().toISOString(); save(); tabOrc(b, p); };
   svcPickerBind('o-svc');
   let pixTocado = false; $('#o-pix').oninput = () => { pixTocado = true; };
   const sugere = () => { const s = svc(val('o-svc')); if (s && !pixTocado) $('#o-pix').value = linhaPix(s, +val('o-ses') || 1) || ''; };
@@ -803,12 +806,12 @@ function tabOrc(b, p){
   $$('[data-rec]', b).forEach(x => x.onclick = () => { v.nitro = x.dataset.rec === 'nitro'; salva(); });
   ['link', 'pag'].forEach(k => { $('#o-par-' + k).onchange = () => { v[k].par = Math.min(18, Math.max(1, Math.floor(+val('o-par-' + k)) || 1)); salva(); };
     $('#o-tot-' + k).onchange = () => { const x = val('o-tot-' + k); v[k].total = x === '' ? null : numBR(x); if (v[k].total !== null && !(v[k].total >= 0)) v[k].total = null; salva(); }; });
-  const w = $('#o-wa'); if (w) w.onclick = () => registrarEnvio(p.id, 'orcamento', 'orcamento:' + Date.now(), msg);
+  const w = $('#o-wa'); if (w) w.onclick = () => { if (!p.lead) registrarEnvio(p.id, 'orcamento', 'orcamento:' + Date.now(), msg); };
   const l = $('#o-limpa'); if (l) arm(l, () => { vs[orcSel] = novaVersao(); salva(); });
-  const f = $('#o-fecha'); if (f) f.onclick = () => orcFecha(p, v, () => { ptab = 'pacotes'; route(); });
+  const f = $('#o-fecha'); if (f) f.onclick = () => orcFecha(p, v, alvo => irFicha(alvo.id, p.lead ? 'dados' : 'pacotes', p.lead));
 }
 function orcFecha(p, v, depois){
-  openSheet('Fechar orçamento 0' + (orcSel + 1), `<div class="form"><p class="sub" style="margin:0">Cada procedimento vira um pacote na ficha, com o valor dividido e a entrada já como parcela paga.</p>
+  openSheet('Fechar orçamento 0' + (orcSel + 1), `<div class="form"><p class="sub" style="margin:0">${p.lead ? 'A cliente é cadastrada agora (nome e WhatsApp) e você completa a ficha em seguida. ' : ''}Cada procedimento vira um pacote na ficha, com o valor dividido e a entrada já como parcela paga.</p>
     ${select('f-canal', 'Como a paciente vai pagar', CANAIS.map(([k, n]) => [k, n]), 'pix')}
     <div class="two">${field('f-par', 'Parcelas do restante', 1, 'number', 'inputmode="numeric" min="1" max="18"')}${field('f-ent', 'Entrada (R$)', +v.entrada || '', 'text', 'inputmode="decimal" placeholder="0"')}</div>
     <p class="sub" id="f-prev" style="margin:0"></p><p class="sub" id="f-erro" role="alert" style="margin:0;color:var(--bad)"></p>
@@ -820,9 +823,49 @@ function orcFecha(p, v, depois){
   ['f-par', 'f-ent'].forEach(id => $('#' + id).addEventListener('input', prev)); prev();
   $('#f-ok').onclick = () => { const {canal, par, ent} = leitura(), total = totalCanal(v, canal, db.orc, db.services);
     if (!(ent >= 0) || ent > total) return $('#f-erro').textContent = 'A entrada não pode passar do total.';
-    db.pacotes.push(...orcFechar(v, canal, par, ent, db.orc, db.services, {pid: p.id, hoje: today(), uid, addMonths, addDays}));
-    v.fechado = today(); save(); closeSheet(); depois(); toast('Orçamento fechado: pacotes criados'); };
+    let alvo = p;
+    if (p.lead) { alvo = {id: uid(), nome: p.nome, tel: p.tel || '', nasc: '', cpf: '', rg: '', end: '', cep: '', insta: '', origem: '', obs: '', lgpd: {ok: false, data: ''}, aval: {}, anam: {}, atend: []};
+      db.patients.push(alvo); G.marcarNovo(alvo.id); db.orc.por[alvo.id] = db.orc.por[p.id]; delete db.orc.por[p.id]; delete db.orc.leads[p.id]; }
+    db.pacotes.push(...orcFechar(v, canal, par, ent, db.orc, db.services, {pid: alvo.id, hoje: today(), uid, addMonths, addDays}));
+    v.fechado = today(); save(); closeSheet(); depois(alvo); toast(p.lead ? 'Orçamento fechado. Complete o cadastro da cliente.' : 'Orçamento fechado: pacotes criados'); };
 }
+/* ---------- tela Orçamentos: quem já é cliente e quem ainda não é (só nome e WhatsApp até fechar) ---------- */
+const orcPessoa = id => { const p = pacDe(id); if (p) return p; const l = db.orc && db.orc.leads && db.orc.leads[id]; return l ? {...l, lead: true} : null; };
+function irFicha(id, tab, editar){
+  const alvo = '#paciente-' + id, go = () => { ptab = tab; dadosEdit = !!editar; route(); };
+  if (location.hash === alvo) go(); else { location.hash = alvo; setTimeout(go, 60); }
+}
+function viewOrcamentos(app){
+  garanteOrc();
+  const gente = [...new Set([...Object.keys(db.orc.por), ...Object.keys(db.orc.leads)])].map(id => ({p: orcPessoa(id), vs: db.orc.por[id] || []})).filter(x => x.p && (x.p.lead || x.vs.some(v => v.itens.length)))
+    .map(x => ({...x, em: x.vs.map(v => v.em || '').sort().pop() || x.p.criado || ''})).sort((a, b) => b.em.localeCompare(a.em));
+  const linha = ({p, vs}) => { const n = vs.filter(v => v.itens.length).length, fechado = vs.some(v => v.fechado);
+    return `<a class="item" href="#orcamento-${p.id}"><div class="avatar">${esc(initials(p.nome))}</div><div class="grow"><span class="t">${esc(p.nome)}</span><div class="m">${n ? n + (n === 1 ? ' opção' : ' opções') : 'sem opções ainda'}${p.tel ? ' · ' + esc(p.tel) : ''}</div></div>${p.lead ? '<span class="pill soon">Ainda não é cliente</span>' : fechado ? '<span class="pill">Fechado</span>' : ''}${ICO_SETA}</a>`; };
+  app.innerHTML = `<div class="head"><div><h1>Orçamentos</h1><p class="sub">${gente.length ? gente.length + (gente.length === 1 ? ' pessoa com orçamento' : ' pessoas com orçamento') : 'Nenhum orçamento ainda'}</p></div><div class="actions"><button class="btn" id="oc-novo" type="button">Novo orçamento</button></div></div>
+    <div class="list">${gente.length ? gente.map(linha).join('') : '<div class="empty">Quando alguém pedir um orçamento, crie aqui. Se ainda não for cliente, basta o nome e o WhatsApp; o cadastro completo fica para quando fechar.</div>'}</div>`;
+  $('#oc-novo').onclick = orcNovo;
+}
+function orcNovo(){
+  const lista = [...db.patients].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  openSheet('Novo orçamento', `<div class="form"><div class="seg" role="group" aria-label="Tipo de cliente" style="align-self:flex-start"><button type="button" data-m="cad" aria-pressed="true">Cliente já cadastrado</button><button type="button" data-m="novo" aria-pressed="false">Cliente não cadastrado</button></div>
+    <div id="no-cad" class="form" style="padding:0">${field('no-q', 'Buscar cliente', '', 'search', 'autocomplete="off" placeholder="Digite o nome"')}<div class="list" id="no-res"></div></div>
+    <div id="no-novo" class="form" style="padding:0" hidden>${field('no-nome', 'Nome', '')}${field('no-tel', 'WhatsApp', '', 'tel', 'inputmode="tel"')}<p class="sub" style="margin:0">Só isso por enquanto. Quando a pessoa escolher o orçamento, você completa o cadastro.</p><div class="actions"><button class="btn" id="no-ok" type="button">Criar orçamento</button></div></div></div>`);
+  const busca = () => { const t = semAcento(val('no-q')).split(/\s+/).filter(Boolean), ach = lista.filter(p => t.every(w => semAcento(p.nome).includes(w))).slice(0, 8);
+    $('#no-res').innerHTML = ach.length ? ach.map(p => `<button class="item" data-p="${p.id}" type="button"><div class="avatar">${esc(initials(p.nome))}</div><div class="grow"><span class="t">${esc(p.nome)}</span><div class="m">${esc(p.tel || 'sem telefone')}</div></div></button>`).join('') : '<div class="empty">Ninguém com esse nome. Use "Cliente não cadastrado".</div>';
+    $$('[data-p]', $('#no-res')).forEach(b => b.onclick = () => { closeSheet(); location.hash = '#orcamento-' + b.dataset.p; }); };
+  $('#no-q').oninput = busca; busca();
+  $$('.seg button').forEach(b => b.onclick = () => { $$('.seg button').forEach(x => x.setAttribute('aria-pressed', String(x === b))); $('#no-cad').hidden = b.dataset.m !== 'cad'; $('#no-novo').hidden = b.dataset.m !== 'novo'; });
+  $('#no-ok').onclick = () => { const nome = val('no-nome'); if (!nome) return toast('Informe o nome');
+    const id = uid(); db.orc.leads[id] = {id, nome, tel: val('no-tel'), criado: new Date().toISOString()}; save(); closeSheet(); location.hash = '#orcamento-' + id; };
+}
+function viewOrcamento(app, id){
+  const p = orcPessoa(id); if (!p) { location.hash = '#orcamentos'; return; }
+  app.innerHTML = `<div class="head"><div><a class="linkbtn" href="#orcamentos">← Orçamentos</a><h1>${esc(p.nome)}</h1><p class="sub">${p.lead ? 'Ainda não é cliente' + (p.tel ? ' · ' + esc(p.tel) : ' · sem WhatsApp') : '<a href="#paciente-' + p.id + '">Abrir ficha</a>' + (p.tel ? ' · ' + esc(p.tel) : '')}</p></div></div>
+    <div id="orc-box"></div>${p.lead ? '<button class="linkbtn perigo" id="oc-del" type="button">Excluir este orçamento</button>' : ''}`;
+  tabOrc($('#orc-box'), p);
+  const d = $('#oc-del'); if (d) arm(d, () => { delete db.orc.por[id]; delete db.orc.leads[id]; save(); location.hash = '#orcamentos'; });
+}
+
 function orcTaxas(){
   garanteOrc();
   const bloco = (k, nome) => `<details class="group"><summary>${nome}<span>${Object.keys(db.orc.taxas[k] || {}).length} parcelamentos</span></summary><div class="form" style="padding:12px">${Array.from({length: 18}, (_, i) => field('tx-' + k + '-' + (i + 1), (i + 1) + 'x (%)', (db.orc.taxas[k] || {})[i + 1] ?? '', 'text', 'inputmode="decimal"')).join('')}</div></details>`;

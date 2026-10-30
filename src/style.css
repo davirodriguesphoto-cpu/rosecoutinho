@@ -593,3 +593,8 @@ body{overflow-x:visible}
 .svcp-o:hover,.svcp-o.on{background:var(--glass)}
 .svcp-o[aria-selected="true"]{color:var(--link)}
 .svcp-vazio{padding:12px;opacity:.7}
+
+/* sino dos lembretes no topo */
+.top #sino{position:relative;text-decoration:none}
+.top #sino .bdg{top:-3px;left:auto;right:-3px}
+.top #sino[aria-current="page"]{color:var(--link);background:var(--tint)}
