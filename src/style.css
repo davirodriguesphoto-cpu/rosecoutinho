@@ -545,3 +545,8 @@ label.btn[aria-disabled="true"]{opacity:.6;pointer-events:none}
 .g-li{display:flex;gap:10px;align-items:center;border:1px dashed var(--line);border-radius:12px;padding:8px 12px;color:var(--muted);font-size:13.5px}
 .g-li b{color:var(--fg);white-space:nowrap;min-width:82px}
 .g-card{margin-top:16px}
+
+/* observacoes longas (fichas antigas): texto em largura total, alinhado a esquerda, quebras preservadas */
+.dl.longo{display:block}
+.dl.longo dt{margin-bottom:8px}
+.dl.longo dd{text-align:left;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6;max-height:60vh;overflow:auto;margin:0}

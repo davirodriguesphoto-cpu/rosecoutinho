@@ -289,7 +289,7 @@ function tabDados(b, p){
     ${linha('Instagram', esc(p.insta || ''))}${linha('Como conheceu', esc(p.origem || ''))}
     ${linha('Uso de imagem', img && esc(img + (p.imgEm ? ' em ' + fmtD(p.imgEm) : '')))}
     ${linha('Dados e imagens', p.lgpd && p.lgpd.ok && esc('Termo assinado em ' + fmtD(p.lgpd.data)))}
-    ${linha('Observações', esc(p.obs || ''))}</dl>
+    ${linha('Observações', esc(p.obs || '')).replace('class="dl"', 'class="dl longo"')}</dl>
     ${faltam.length ? `<p class="sub" style="margin:10px 0 0">Para gerar o contrato falta: ${faltam.join(', ')}.</p>` : ''}
     <div class="actions" style="margin-top:14px"><button class="btn" id="d-edit" type="button">Editar dados</button></div></div>`;
   $('#d-edit').onclick = () => { dadosEdit = true; tabDados(b, p); };
