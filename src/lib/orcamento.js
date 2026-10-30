@@ -1,14 +1,14 @@
-/* Orçamentos: até 3 versões por paciente, cada uma com procedimentos, valor no Pix/dinheiro, no link de pagamento (Stone) e na maquininha (PagSeguro).
-   db.orc = {taxas: {stone: {[parcelas]: %}, pag: {...}}, por: {[pacienteId]: [versão, versão, versão]}}
-   versão = {itens: [{sid, nome, ses, pix}], pix (total digitado ou null), entrada, stone: {par, total}, pag: {par, total}, fechado}  (total null = calculado) */
+/* Orçamentos: até 3 versões por paciente, cada uma com procedimentos, valor no Pix/dinheiro, no link de pagamento (Infiniti) e na maquininha (PagSeguro).
+   db.orc = {taxas: {link: {[parcelas]: %}, pag: {...}}, por: {[pacienteId]: [versão, versão, versão]}}
+   versão = {itens: [{sid, nome, ses, pix}], pix (total digitado ou null), entrada, link: {par, total}, pag: {par, total}, fechado}  (total null = calculado) */
 
 const num = v => { const n = Number(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : 0; };
 const r2 = n => Math.round(n * 100) / 100;
-export const CANAIS = [['pix', 'Pix ou dinheiro'], ['stone', 'Link de pagamento (Stone)'], ['pag', 'Maquininha (PagSeguro)']];
-/* taxas padrão (%): Stone 2,99 à vista e 3,49 de 2x a 18x (3x e 4x ajustadas pelos orçamentos reais da Rose: 7,01 e 7,91); PagSeguro 4,99 à vista e 5,59 de 2x a 12x. A Rose ajusta em Ajustes. */
+export const CANAIS = [['pix', 'Pix ou dinheiro'], ['link', 'Link de pagamento (Infiniti)'], ['pag', 'Maquininha (PagSeguro)']];
+/* taxas padrão (%): link da Infiniti (tabela da operadora; 3x e 4x ajustadas pelos orçamentos reais da Rose: 7,01 e 7,91) e maquininha PagSeguro (4,99 à vista, 5,59 de 2x a 12x). A Rose ajusta em Ajustes. */
 const faixa = (de, ate, t) => Object.fromEntries(Array.from({length: ate - de + 1}, (_, i) => [de + i, t]));
-export const vazio = () => ({taxas: {stone: {1: 2.99, ...faixa(2, 18, 3.49), 3: 7.013, 4: 7.908}, pag: {1: 4.99, ...faixa(2, 12, 5.59)}}, por: {}});
-export const novaVersao = () => ({itens: [], pix: null, entrada: 0, stone: {par: 1, total: null}, pag: {par: 1, total: null}, fechado: ''});
+export const vazio = () => ({taxas: {link: {1: 5.49, 2: 10.89, 3: 7.013, 4: 7.908, 6: 13.99, 10: 16.89, 11: 17.89, 12: 18.29}, pag: {1: 4.99, ...faixa(2, 12, 5.59)}}, por: {}});
+export const novaVersao = () => ({itens: [], pix: null, entrada: 0, link: {par: 1, total: null}, pag: {par: 1, total: null}, fechado: ''});
 export const versoesDe = (orc, pid) => { const por = orc.por[pid] || (orc.por[pid] = []); while (por.length < 3) por.push(novaVersao()); return por; };
 
 /* preço Pix da linha: o do pacote do catálogo com as mesmas sessões, senão sessões × preço da sessão */
@@ -33,7 +33,7 @@ const val2 = n => Number(n).toLocaleString('pt-BR', {minimumFractionDigits: 2, m
 function linhasValor(v, orc, services){
   const e = num(v.entrada), pix = totalPix(v);
   const out = ['R$ ' + val2(pix).replace(',00', '') + ' dinheiro ou pix' + (e ? ' (entrada de ' + brl(e) + ')' : '')];
-  [['stone', 'via link'], ['pag', 'na maquininha']].forEach(([k, onde]) => { const par = Math.max(1, Math.floor(num(v[k].par))); out.push(par + 'x ' + val2(porParcela(totalCanal(v, k, orc, services), e, par)) + ' ( ' + onde + ' )'); });
+  [['link', 'via link'], ['pag', 'na maquininha']].forEach(([k, onde]) => { const par = Math.max(1, Math.floor(num(v[k].par))); out.push(par + 'x ' + val2(porParcela(totalCanal(v, k, orc, services), e, par)) + ' ( ' + onde + ' )'); });
   return out;
 }
 /* um texto só com todas as versões preenchidas */

@@ -765,7 +765,7 @@ function pacoteEdit(k, p){
     Object.assign(k, {total: ses, usadas: us, validade: val('e-validade')}); save(); closeSheet(); route(); toast('Salvo'); };
 }
 
-/* ---------- orçamentos: até 3 versões por paciente (Pix, link Stone, maquininha PagSeguro); a escolhida vira pacotes na ficha ---------- */
+/* ---------- orçamentos: até 3 versões por paciente (Pix, link Infiniti, maquininha PagSeguro); a escolhida vira pacotes na ficha ---------- */
 const garanteOrc = () => { if (!db.orc || !db.orc.por) db.orc = orcVazio(); if (!db.orc.taxas) db.orc.taxas = orcVazio().taxas; };
 let orcSel = 0;
 function tabOrc(b, p){
@@ -784,7 +784,7 @@ function tabOrc(b, p){
       <div class="actions"><button class="btn small" id="o-add" type="button">Adicionar</button></div></section>
     <section class="card form"><div><span class="t" style="font-weight:700">Pix ou dinheiro</span><p class="sub" style="margin:0">${totalPix(v) ? 'total ' + brl(totalPix(v)) + (+v.entrada ? ' · restante ' + brl(totalPix(v) - v.entrada) : '') : 'Informe o total'}</p></div>
       <div class="two">${field('o-pixt', 'Total no Pix (R$)', v.pix == null ? '' : v.pix, 'text', 'inputmode="decimal" placeholder="' + (somaPix(v) || '') + '"')}${field('o-ent', 'Entrada (R$)', +v.entrada || '', 'text', 'inputmode="decimal" placeholder="0"')}</div></section>
-    ${cartao('stone', 'Link de pagamento (Stone)')}${cartao('pag', 'Maquininha (PagSeguro)')}
+    ${cartao('link', 'Link de pagamento (Infiniti)')}${cartao('pag', 'Maquininha (PagSeguro)')}
     <div class="actions">${wa ? `<a class="btn" id="o-wa" href="${wa}" target="_blank" rel="noopener">${ICO_BALAO}Enviar orçamentos por WhatsApp</a>` : `<span class="pill">${msg ? 'sem telefone' : 'preencha um orçamento'}</span>`}${v.itens.length && !v.fechado ? '<button class="btn ghost" id="o-fecha" type="button">Fechar este orçamento</button>' : ''}${v.itens.length ? '<button class="btn danger small" id="o-limpa" type="button">Limpar</button>' : ''}</div>
     <p class="src">O Pix vem da Tabela de preços (ou do pacote do catálogo). O cartão é calculado com as taxas de Ajustes, para você receber o mesmo que no Pix; digite o total à mão para mudar. Ao fechar, cada procedimento vira um pacote com a entrada já paga.</p>`;
   const salva = () => { save(); tabOrc(b, p); };
@@ -799,7 +799,7 @@ function tabOrc(b, p){
     v.itens.push({sid: s ? s.id : '', nome: livre || '', ses, pix}); salva(); };
   $('#o-pixt').onchange = () => { const x = val('o-pixt'); v.pix = x === '' ? null : numBR(x); if (v.pix !== null && !(v.pix >= 0)) v.pix = null; salva(); };
   $('#o-ent').onchange = () => { const e = val('o-ent') === '' ? 0 : numBR(val('o-ent')); if (!(e >= 0)) return toast('Entrada inválida'); v.entrada = e; salva(); };
-  ['stone', 'pag'].forEach(k => { $('#o-par-' + k).onchange = () => { v[k].par = Math.min(18, Math.max(1, Math.floor(+val('o-par-' + k)) || 1)); salva(); };
+  ['link', 'pag'].forEach(k => { $('#o-par-' + k).onchange = () => { v[k].par = Math.min(18, Math.max(1, Math.floor(+val('o-par-' + k)) || 1)); salva(); };
     $('#o-tot-' + k).onchange = () => { const x = val('o-tot-' + k); v[k].total = x === '' ? null : numBR(x); if (v[k].total !== null && !(v[k].total >= 0)) v[k].total = null; salva(); }; });
   const w = $('#o-wa'); if (w) w.onclick = () => registrarEnvio(p.id, 'orcamento', 'orcamento:' + Date.now(), msg);
   const l = $('#o-limpa'); if (l) arm(l, () => { vs[orcSel] = novaVersao(); salva(); });
@@ -825,8 +825,8 @@ function orcTaxas(){
   garanteOrc();
   const bloco = (k, nome) => `<details class="group"><summary>${nome}<span>${Object.keys(db.orc.taxas[k] || {}).length} parcelamentos</span></summary><div class="form" style="padding:12px">${Array.from({length: 18}, (_, i) => field('tx-' + k + '-' + (i + 1), (i + 1) + 'x (%)', (db.orc.taxas[k] || {})[i + 1] ?? '', 'text', 'inputmode="decimal"')).join('')}</div></details>`;
   openSheet('Taxas do cartão', `<div class="form"><p class="sub" style="margin:0">Taxa de cada parcelamento. O valor no cartão sai do Pix dividido por (1 − taxa), para você receber o mesmo que no Pix. Em branco = usa o preço de cartão da Tabela de preços.</p>
-    ${bloco('stone', 'Link de pagamento (Stone)')}${bloco('pag', 'Maquininha (PagSeguro)')}<div class="actions"><button class="btn" id="tx-ok" type="button">Salvar</button></div></div>`);
-  $('#tx-ok').onclick = () => { ['stone', 'pag'].forEach(k => { const o = {}; for (let i = 1; i <= 18; i++) { const x = val('tx-' + k + '-' + i); if (x !== '' && numBR(x) >= 0 && numBR(x) < 100) o[i] = numBR(x); } db.orc.taxas[k] = o; }); save(); closeSheet(); toast('Taxas salvas'); };
+    ${bloco('link', 'Link de pagamento (Infiniti)')}${bloco('pag', 'Maquininha (PagSeguro)')}<div class="actions"><button class="btn" id="tx-ok" type="button">Salvar</button></div></div>`);
+  $('#tx-ok').onclick = () => { ['link', 'pag'].forEach(k => { const o = {}; for (let i = 1; i <= 18; i++) { const x = val('tx-' + k + '-' + i); if (x !== '' && numBR(x) >= 0 && numBR(x) < 100) o[i] = numBR(x); } db.orc.taxas[k] = o; }); save(); closeSheet(); toast('Taxas salvas'); };
 }
 
 /* ---------- documentos: contrato com assinatura online (só com login; o modo de teste não guarda documentos) ---------- */
@@ -895,7 +895,7 @@ function abrirAjustes(){
   openSheet('Ajustes', `<div class="menu"><div class="list">
     <a class="item" href="#precos"><div class="grow"><div class="t">Tabela de preços</div><div class="m">Preço final e preço sugerido</div></div>${ICO_SETA}</a>
     <a class="item" href="#despesas"><div class="grow"><div class="t">Despesas e produtos</div><div class="m">Aluguel, materiais e custo por hora</div></div>${ICO_SETA}</a>
-    <button class="item" id="a-taxas" type="button"><div class="grow"><div class="t">Taxas do cartão</div><div class="m">Link da Stone e maquininha PagSeguro</div></div>${ICO_SETA}</button></div>
+    <button class="item" id="a-taxas" type="button"><div class="grow"><div class="t">Taxas do cartão</div><div class="m">Link da Infiniti e maquininha PagSeguro</div></div>${ICO_SETA}</button></div>
     ${cloud ? '<details class="gaveta"><summary><span>Google</span><small id="a-gst">verificando…</small>' + ICO_SETA + '</summary><div id="a-google"></div></details>' : ''}
     ${sair ? '<div class="actions"><button class="btn ghost" id="a-sair" type="button">Sair</button></div>' : ''}</div>`);
   if (cloud) G.afterAgenda($('#app'), $('#a-google')).then(() => { const st = $('#a-gst'); if (st) st.textContent = /Google conectado/.test($('#a-google').textContent) ? 'conectado' : /Conectar/i.test($('#a-google').textContent) ? 'não conectado' : 'sem resposta'; });

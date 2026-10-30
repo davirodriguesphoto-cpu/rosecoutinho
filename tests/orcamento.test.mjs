@@ -9,14 +9,14 @@ const ajuda = () => { let n = 0; return {pid: 'p', hoje: '2026-10-30', uid: () =
 
 ok('linha usa o pacote do catálogo quando as sessões batem, senão sessão × preço', () => { assert.equal(linhaPix(services[0], 10), 900); assert.equal(linhaPix(services[0], 3), 300); });
 ok('total Pix soma as linhas', () => assert.equal(totalPix(v), 1900));
-ok('taxa padrão da Stone à vista: Pix ÷ (1 - 2,99%)', () => assert.equal(totalCanal(v, 'stone', orc, services), Math.round(190000 / (1 - 0.0299)) / 100));
+ok('taxa padrão da Infiniti à vista: Pix ÷ (1 - 5,49%)', () => assert.equal(totalCanal(v, 'link', orc, services), Math.round(190000 / (1 - 0.0549)) / 100));
 ok('sem taxa para o parcelamento cai no preço de cartão da tabela', () => { v.pag.par = 15; assert.equal(totalCanal(v, 'pag', orc, services), 1100 + 1100); v.pag.par = 1; });
 ok('taxa do parcelamento tem prioridade; total digitado vence a taxa', () => {
-  orc.taxas.stone[6] = 10; v.stone.par = 6; assert.equal(totalCanal(v, 'stone', orc, services), 2111.11);
-  v.stone.total = 2000; assert.equal(totalCanal(v, 'stone', orc, services), 2000); v.stone.total = null;
+  orc.taxas.link[6] = 10; v.link.par = 6; assert.equal(totalCanal(v, 'link', orc, services), 2111.11);
+  v.link.total = 2000; assert.equal(totalCanal(v, 'link', orc, services), 2000); v.link.total = null;
 });
 ok('reproduz os orçamentos reais da Rose no link (3x e 4x)', () => {
-  const o = vazio(), q = (pix, par) => { const w = novaVersao(); w.pix = pix; w.stone.par = par; w.itens.push({sid: '', nome: 'x', ses: 1, pix: 0}); return porParcela(totalCanal(w, 'stone', o, services), 0, par); };
+  const o = vazio(), q = (pix, par) => { const w = novaVersao(); w.pix = pix; w.link.par = par; w.itens.push({sid: '', nome: 'x', ses: 1, pix: 0}); return porParcela(totalCanal(w, 'link', o, services), 0, par); };
   assert.equal(q(510, 3), 182.82); assert.equal(q(410, 3), 146.97); assert.equal(q(660, 4), 179.17);
 });
 ok('parcela = (total - entrada) / parcelas', () => assert.equal(porParcela(2090, 290, 6), 300));
@@ -28,7 +28,7 @@ ok('mensagem no jeito da Rose: opção, linhas com quantidade, Pix e parcelas', 
 });
 ok('texto livre e total no Pix digitado (como a Rose monta hoje)', () => {
   const w = novaVersao();
-  w.itens.push({sid: '', nome: 'lipo enzimática (abdômen) com radiofrequência', ses: 1, pix: 0}, {sid: 'a', ses: 2, pix: 0}); w.pix = 510; w.stone.par = 3;
+  w.itens.push({sid: '', nome: 'lipo enzimática (abdômen) com radiofrequência', ses: 1, pix: 0}, {sid: 'a', ses: 2, pix: 0}); w.pix = 510; w.link.par = 3;
   assert.equal(totalPix(w), 510);
   const m = mensagem('Ana', [w, novaVersao(), novaVersao()], orc, services);
   assert.match(m, /1 lipo enzimática \(abdômen\) com radiofrequência\n2 drenagem/);
@@ -37,9 +37,9 @@ ok('texto livre e total no Pix digitado (como a Rose monta hoje)', () => {
   assert.equal(ks.length, 2); assert.equal(Math.round(ks.reduce((t, k) => t + k.valor, 0) * 100), 51000);
 });
 ok('fechar: um pacote por procedimento, soma bate e entrada vira parcela paga', () => {
-  v.stone.par = 3; const ks = fechar(v, 'stone', 3, 290, orc, services, ajuda());
+  v.link.par = 3; const ks = fechar(v, 'link', 3, 290, orc, services, ajuda());
   assert.equal(ks.length, 2);
-  assert.equal(Math.round(ks.reduce((t, k) => t + k.valor, 0) * 100), totalCanal(v, 'stone', orc, services) * 100);
+  assert.equal(Math.round(ks.reduce((t, k) => t + k.valor, 0) * 100), totalCanal(v, 'link', orc, services) * 100);
   assert.equal(Math.round(ks.reduce((t, k) => t + k.parc.filter(x => x.pago).reduce((a, x) => a + x.valor, 0), 0) * 100), 29000);
   ks.forEach(k => assert.equal(Math.round(k.parc.reduce((a, x) => a + x.valor, 0) * 100), Math.round(k.valor * 100)));
   assert.equal(ks[0].total, 10); assert.equal(ks[0].parc.filter(x => !x.pago).length, 3);
