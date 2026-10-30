@@ -613,3 +613,10 @@ body{overflow-x:visible}
 #sheet{inset:auto;left:0;right:0;top:var(--vvt,0px);height:var(--vvh,100%)}
 body.kb .tabs{display:none}
 body.kb .panel{padding-bottom:20px}
+
+/* orçamento em duas etapas: montar e conferir */
+.orc-fase{display:flex;flex-direction:column;gap:14px}
+.orc-canal{display:flex;flex-direction:column;gap:8px;padding-top:10px;border-top:1px solid var(--sep,var(--line))}
+.msgprev{white-space:pre-wrap;font:inherit;margin:0;line-height:1.5}
+
+.three{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}

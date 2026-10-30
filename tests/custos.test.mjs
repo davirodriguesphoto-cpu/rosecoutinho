@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {CUSTOS_SEED} from '../src/custos-seed.js';
-import {semear, custoDe, sugerido, horaFixa, totalFixo, cartao} from '../src/lib/custos.js';
+import {semear, custoDe, sugerido, sugeridoPlano, horaFixa, totalFixo, cartao} from '../src/lib/custos.js';
 
 /* valores que a planilha da Rose calcula (coluna "Despesas" de Procedimentos). Diferença aceita: R$ 3,15 do gaze,
    que a planilha conta pelo pacote inteiro (R$ 3,50) e o painel conta por unidade (R$ 0,35). */
@@ -26,4 +26,10 @@ console.log('ok - custo de ' + n + ' procedimentos confere com a planilha');
   assert.ok(Math.abs((depois - antes) - c.rec[s.id].h * 1) < 1e-6, 'sobe 180/180 = R$ 1 por hora gasta');
   assert.equal(sugerido(c, 100), 200); assert.equal(cartao(c, 100), 107);
   console.log('ok - aluguel mais caro recalcula o custo; sugerido e cartão');
+}
+{ /* a planilha: Drenagem 1 região, custo 22,10 -> avulsa 55,25 / pacote 4: 50,83 / pacote 8: 46,41 (aqui arredondado de 5 em 5) */
+  const c = {mult: 2};
+  assert.equal(sugeridoPlano(c, 22.1, 'ind'), 55); assert.equal(sugeridoPlano(c, 22.1, 'p4'), 50); assert.equal(sugeridoPlano(c, 22.1, 'p8'), 45);
+  assert.equal(sugeridoPlano({mult: 2, lucro: {p4: 0}}, 22.1, 'p4'), 45); assert.equal(sugeridoPlano(c, null, 'ind'), null);
+  console.log('ok - preço sugerido por plano (avulsa, pacote 4 e pacote 8)');
 }

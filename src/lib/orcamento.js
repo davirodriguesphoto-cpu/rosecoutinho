@@ -19,7 +19,8 @@ export const linhaPix = (s, ses) => { const o = ((s && s.pacotes) || []).find(x 
 export const somaPix = v => r2(v.itens.reduce((t, i) => t + num(i.pix), 0));
 /* o total no Pix é o digitado na versão; sem ele, a soma das linhas */
 export const totalPix = v => v.pix != null && v.pix !== '' ? r2(num(v.pix)) : somaPix(v);
-export const nomeItem = (it, services) => it.nome || ((services.find(x => x.id === it.sid) || {}).nome) || 'procedimento';
+/* texto do item na mensagem: o que a Rose digitou, ou "serviço região (tipo)" montado do catálogo */
+export const nomeItem = (it, services) => it.nome || (() => { const sv = services.find(x => x.id === it.sid); if (!sv) return 'procedimento'; const [n, ...r] = sv.nome.split(' — '); return n + (r.length ? ' ' + r.join(' ') : '') + (it.tipo ? ' (' + it.tipo.toLowerCase() + ')' : ''); })();
 /* cartão: valor digitado; senão o Pix dividido por (1 - taxa), para a clínica receber o mesmo que no Pix depois da taxa; senão a soma dos preços de cartão da tabela (ou Pix) */
 /* taxa do parcelamento: a da tabela; entre duas faixas preenchidas, interpolada (a tabela da operadora só traz 1x, 2x, 6x, 10x, 11x e 12x); fora delas, nenhuma */
 export function taxaDe(tabela, par){
@@ -69,3 +70,26 @@ export function fechar(v, canal, par, entrada, orc, services, {pid, hoje, uid, a
     return {id: uid(), pid, sid: it.sid || '', total: Math.max(1, Math.floor(num(it.ses)) || 1), usadas: 0, valor, criado: hoje, validade: addDays(hoje, 180), forma: canal === 'pix' ? 'Pix' : 'Cartão', parc};
   });
 }
+
+/* ---- catálogo em forma de escolha: Serviço > região/produto > sessões (+ aparelho) ---- */
+export const PARTES = ' — ';
+/* "Drenagem Linfática — 1 região" vira serviço "Drenagem Linfática" com a variação "1 região"; sem " — " não há variação */
+export function servicoGrupos(services){
+  const g = new Map();
+  services.forEach(s => { const [nome, ...resto] = s.nome.split(PARTES), k = s.cat + '|' + nome;
+    if (!g.has(k)) g.set(k, {nome, cat: s.cat, vars: []}); g.get(k).vars.push({sid: s.id, rotulo: resto.join(PARTES)}); });
+  return [...g.values()];
+}
+export const rotuloVariacao = nome => /drenagem|modeladora|lipo|hidrolipo/i.test(nome) ? 'Região' : /preench|seringa|bioestimulador|fios/i.test(nome) ? 'Produto' : 'Opção';
+/* tipos que não mudam o preço, só a descrição na mensagem */
+export const TIPOS = {'Drenagem Linfática': ['Estético', 'Pós-operatório', 'Gestacional']};
+
+/* preço de N sessões: o pacote do catálogo se as sessões batem; senão o valor por sessão do maior pacote que cabe (ou o individual) × N */
+export function precoSessoes(s, n){
+  const q = Math.max(1, Math.floor(num(n)) || 1), ind = num(s && s.pix), pk = ((s && s.pacotes) || []).map(([a, t]) => ({q: num(a), t: num(t)})).filter(x => x.q > 0 && x.t > 0).sort((a, b) => a.q - b.q);
+  const exato = pk.find(x => x.q === q); if (exato) return {total: r2(exato.t), por: r2(exato.t / q), pacote: q};
+  const base = pk.filter(x => x.q <= q).pop(), por = base ? base.t / base.q : ind;
+  return {total: r2(por * q), por: r2(por), pacote: base ? base.q : 0};
+}
+/* quanto o valor por sessão é mais barato que o individual, em % inteiro */
+export const descontoDe = (s, por) => num(s && s.pix) > 0 && por > 0 ? Math.max(0, Math.round((1 - por / num(s.pix)) * 100)) : 0;

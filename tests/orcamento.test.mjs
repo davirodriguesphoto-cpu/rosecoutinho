@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { vazio, novaVersao, linhaPix, totalPix, totalCanal, taxaDe, porParcela, mensagem, fechar } from '../src/lib/orcamento.js';
+import { readFileSync } from 'node:fs';
+import { precoSessoes, descontoDe, servicoGrupos, nomeItem, rotuloVariacao, vazio, novaVersao, linhaPix, totalPix, totalCanal, taxaDe, porParcela, mensagem, fechar } from '../src/lib/orcamento.js';
 
 const services = [{id: 'a', nome: 'Drenagem', pix: 100, card: 110, pacotes: [[10, 900]]}, {id: 'b', nome: 'Toxina', pix: 1000, card: 1100, pacotes: []}];
 const orc = vazio(), v = novaVersao();
@@ -50,3 +51,18 @@ ok('fechar: um pacote por procedimento, soma bate e entrada vira parcela paga', 
   ks.forEach(k => assert.equal(Math.round(k.parc.reduce((a, x) => a + x.valor, 0) * 100), Math.round(k.valor * 100)));
   assert.equal(ks[0].total, 10); assert.equal(ks[0].parc.filter(x => !x.pago).length, 3);
 });
+
+const REAL = JSON.parse(readFileSync(new URL('../src/services.json', import.meta.url), 'utf8'));
+ok('preço de N sessões: pacote exato, valor por sessão do maior pacote que cabe, ou individual', () => {
+  const dren = REAL.find(x => x.nome === 'Drenagem Linfática — 1 região');
+  assert.deepEqual(precoSessoes(dren, 1), {total: 60, por: 60, pacote: 0});
+  assert.equal(precoSessoes(dren, 4).total, 220); assert.equal(precoSessoes(dren, 8).total, 400);
+  assert.equal(precoSessoes(dren, 2).total, 120); assert.equal(precoSessoes(dren, 6).total, 330); assert.equal(precoSessoes(dren, 10).total, 500);
+});
+ok('desconto do pacote em % sobre o individual', () => { const d = REAL.find(x => x.nome === 'Drenagem Linfática — 1 região'); assert.equal(descontoDe(d, 55), 8); assert.equal(descontoDe(d, 50), 17); assert.equal(descontoDe(d, 60), 0); });
+ok('catálogo agrupado: serviço com região, e serviço sem variação', () => {
+  const g = servicoGrupos(REAL), d = g.find(x => x.nome === 'Drenagem Linfática'), l = g.find(x => x.nome === 'Limpeza de pele');
+  assert.equal(d.vars.length, 4); assert.equal(d.vars[0].rotulo, '1 região'); assert.equal(l.vars.length, 1); assert.equal(l.vars[0].rotulo, '');
+  assert.equal(rotuloVariacao('Drenagem Linfática'), 'Região'); assert.equal(rotuloVariacao('Bioestimulador'), 'Produto');
+});
+ok('texto do item montado do catálogo, com o tipo', () => { const d = REAL.find(x => x.nome === 'Drenagem Linfática — 2 regiões'); assert.equal(nomeItem({sid: d.id, tipo: 'Pós-operatório'}, REAL), 'Drenagem Linfática 2 regiões (pós-operatório)'); });

@@ -5,8 +5,8 @@ import { createGoogle } from './google.js';
 import corpoSvg from './assets/mapa/corpo.svg?raw';
 import rostoSvg from './assets/mapa/rosto.svg?raw';
 import { CUSTOS_SEED } from './custos-seed.js';
-import { semear, horaFixa, totalFixo, unitario, custoDe, sugerido, margem } from './lib/custos.js';
-import { vazio as orcVazio, versoesDe, novaVersao, linhaPix, somaPix, totalPix, totalCanal, porParcela, nomeItem, mensagem as orcMensagem, fechar as orcFechar, CANAIS } from './lib/orcamento.js';
+import { semear, horaFixa, totalFixo, unitario, custoDe, sugerido, margem, lucroDe, sugeridoPlano } from './lib/custos.js';
+import { vazio as orcVazio, versoesDe, novaVersao, somaPix, totalPix, totalCanal, porParcela, nomeItem, mensagem as orcMensagem, fechar as orcFechar, CANAIS, servicoGrupos, rotuloVariacao, TIPOS, precoSessoes, descontoDe } from './lib/orcamento.js';
 import { preencher as preencherContrato, faltando as faltandoContrato, novoToken, cpfValido } from './lib/contrato.js';
 
 const KEY = 'rc-clinica-v1';
@@ -789,45 +789,121 @@ function pacoteEdit(k, p){
 
 /* ---------- orçamentos: até 3 versões por paciente (Pix, link Infiniti, maquininha PagSeguro); a escolhida vira pacotes na ficha ---------- */
 const garanteOrc = () => { if (!db.orc || !db.orc.por) db.orc = orcVazio(); db.orc.taxas = {...orcVazio().taxas, ...(db.orc.taxas || {})}; db.orc.leads = db.orc.leads || {}; };
-let orcSel = 0;
+let orcSel = 0, orcFase = 'montar';
+const descDe = it => { const s = svc(it.sid); return s && +it.ses > 0 && +it.pix > 0 ? descontoDe(s, it.pix / it.ses) : 0; };
 function tabOrc(b, p){
   garanteOrc();
-  const vs = versoesDe(db.orc, p.id), v = vs[orcSel], tot = c => totalCanal(v, c, db.orc, db.services), t = today();
-  const linha = (it, i) => { return `<div class="item static"><div class="grow"><span class="t">${esc(nomeItem(it, db.services))}</span><div class="m">${it.ses} ${+it.ses === 1 ? 'sessão' : 'sessões'}${+it.pix ? ' · ' + brl(it.pix) + ' no Pix' : ''}</div></div><button class="btn ghost small" data-rm="${i}" type="button">Tirar</button></div>`; };
-  const cartao = (k, nome) => { const c = v[k], par = Math.max(1, Math.floor(+c.par) || 1), total = tot(k);
-    const recebe = k === 'link' ? `<div class="seg" role="group" aria-label="Recebimento do link" style="align-self:flex-start"><button type="button" data-rec="dia" aria-pressed="${!v.nitro}">1 dia útil</button><button type="button" data-rec="nitro" aria-pressed="${!!v.nitro}">Nitro (na hora)</button></div>` : '';
-    return `<div class="card form"><div><span class="t" style="font-weight:700">${nome}</span><p class="sub" style="margin:0">${v.itens.length ? par + 'x de ' + brl(porParcela(total, v.entrada, par)) + (+v.entrada ? ' + entrada de ' + brl(v.entrada) : '') + ' · total ' + brl(total) : 'Adicione procedimentos'}</p></div>${recebe}
-      <div class="two">${field('o-par-' + k, 'Parcelas', par, 'number', 'inputmode="numeric" min="1" max="18"')}${field('o-tot-' + k, 'Total (à mão)', c.total == null ? '' : c.total, 'text', 'inputmode="decimal" placeholder="' + (v.itens.length ? total : 'automático') + '"')}</div></div>`; };
-  const msg = orcMensagem(firstName(p.nome), vs, db.orc, db.services), wa = msg && waLink(p, msg, {});
-  b.innerHTML = `<div class="chips grade" role="tablist" aria-label="Orçamento">${[0, 1, 2].map(i => `<button class="chip" role="tab" data-o="${i}" aria-selected="${i === orcSel}" type="button">Orçamento 0${i + 1}${vs[i].itens.length ? ' · ' + brl(totalPix(vs[i])) : ''}</button>`).join('')}</div>
+  const vs = versoesDe(db.orc, p.id);
+  const refaz = (salvar = true) => { if (salvar) { vs[orcSel].em = new Date().toISOString(); save(); } tabOrc(b, p); };
+  b.innerHTML = `<div class="seg" role="group" aria-label="Etapa" style="align-self:flex-start"><button type="button" data-fase="montar" aria-pressed="${orcFase === 'montar'}">1 · Montar tudo</button><button type="button" data-fase="conferir" aria-pressed="${orcFase === 'conferir'}">2 · Conferir tudo</button></div><div id="orc-fase" class="orc-fase"></div>`;
+  $$('[data-fase]', b).forEach(x => x.onclick = () => { orcFase = x.dataset.fase; refaz(false); });
+  (orcFase === 'montar' ? orcMontar : orcConferir)($('#orc-fase', b), p, vs, refaz);
+}
+
+/* etapa 1: monta as três opções, um procedimento de cada vez (como os blocos do treino no WÓD'IO) */
+function orcMontar(b, p, vs, refaz){
+  const v = vs[orcSel];
+  const linha = (it, i) => { const d = descDe(it), cada = +it.ses > 1 && +it.pix > 0 ? ' (' + brl(it.pix / it.ses) + ' cada' + (d ? ', ' + d + '% menos' : '') + ')' : '';
+    return `<div class="item static"><div class="grow"><span class="t">${esc(it.ses)} · ${esc(nomeItem(it, db.services))}</span><div class="m">${+it.ses === 1 ? '1 sessão' : it.ses + ' sessões'} · ${+it.pix ? brl(it.pix) + cada : 'valor a definir'}</div></div><button class="btn ghost small" data-ed="${i}" type="button">Editar</button><button class="btn ghost small" data-rm="${i}" type="button">Tirar</button></div>`; };
+  b.innerHTML = `<div class="chips grade" role="tablist" aria-label="Orçamento">${[0, 1, 2].map(i => `<button class="chip" role="tab" data-o="${i}" aria-selected="${i === orcSel}" type="button">Orçamento 0${i + 1}${vs[i].itens.length ? ' · ' + vs[i].itens.length : ''}</button>`).join('')}</div>
     ${v.fechado ? `<div class="note"><span>Fechado em ${fmtD(v.fechado)}. Os pacotes já estão na aba Pacotes.</span></div>` : ''}
-    <div class="list">${v.itens.length ? v.itens.map(linha).join('') : '<div class="empty">Nenhum procedimento neste orçamento.</div>'}</div>
-    <section class="card form"><h2 style="font-size:16px;margin:0">Adicionar procedimento</h2>${svcPicker('o-svc', '')}${field('o-livre', 'Ou descreva do seu jeito', '', 'text', 'placeholder="ex.: drenagem abdômen c/ radiofrequência"')}
-      <div class="two">${field('o-ses', 'Quantidade', 1, 'number', 'inputmode="numeric" min="1"')}${field('o-pix', 'Valor no Pix (opcional)', '', 'text', 'inputmode="decimal"')}</div>
-      <div class="actions"><button class="btn small" id="o-add" type="button">Adicionar</button></div></section>
-    <section class="card form"><div><span class="t" style="font-weight:700">Pix ou dinheiro</span><p class="sub" style="margin:0">${totalPix(v) ? 'total ' + brl(totalPix(v)) + (+v.entrada ? ' · restante ' + brl(totalPix(v) - v.entrada) : '') : 'Informe o total'}</p></div>
-      <div class="two">${field('o-pixt', 'Total no Pix (R$)', v.pix == null ? '' : v.pix, 'text', 'inputmode="decimal" placeholder="' + (somaPix(v) || '') + '"')}${field('o-ent', 'Entrada (R$)', +v.entrada || '', 'text', 'inputmode="decimal" placeholder="0"')}</div></section>
-    ${cartao('link', 'Link de pagamento (Infiniti)')}${cartao('pag', 'Maquininha (PagSeguro)')}
-    <div class="actions">${wa ? `<a class="btn" id="o-wa" href="${wa}" target="_blank" rel="noopener">${ICO_BALAO}Enviar orçamentos por WhatsApp</a>` : `<span class="pill">${msg ? 'sem telefone' : 'preencha um orçamento'}</span>`}${v.itens.length && !v.fechado ? '<button class="btn ghost" id="o-fecha" type="button">Fechar este orçamento</button>' : ''}${v.itens.length ? '<button class="btn danger small" id="o-limpa" type="button">Limpar</button>' : ''}</div>
-    <p class="src">O Pix vem da Tabela de preços (ou do pacote do catálogo). O cartão é calculado com as taxas de Ajustes, para você receber o mesmo que no Pix; digite o total à mão para mudar. Ao fechar, cada procedimento vira um pacote com a entrada já paga.</p>`;
-  const salva = () => { v.em = new Date().toISOString(); save(); tabOrc(b, p); };
-  svcPickerBind('o-svc');
-  let pixTocado = false; $('#o-pix').oninput = () => { pixTocado = true; };
-  const sugere = () => { const s = svc(val('o-svc')); if (s && !pixTocado) $('#o-pix').value = linhaPix(s, +val('o-ses') || 1) || ''; };
-  $('#o-svc').onchange = sugere; $('#o-ses').oninput = sugere;
-  $$('[data-o]', b).forEach(x => x.onclick = () => { orcSel = +x.dataset.o; tabOrc(b, p); });
-  $$('[data-rm]', b).forEach(x => x.onclick = () => { v.itens.splice(+x.dataset.rm, 1); salva(); });
-  $('#o-add').onclick = () => { const s = svc(val('o-svc')), livre = val('o-livre'), ses = Math.floor(+val('o-ses')), pix = val('o-pix') === '' ? (s ? linhaPix(s, ses) : 0) : numBR(val('o-pix'));
-    if (!s && !livre) return toast('Escolha o procedimento ou descreva'); if (!(ses >= 1)) return toast('Informe a quantidade'); if (!(pix >= 0)) return toast('Valor no Pix inválido');
-    v.itens.push({sid: s ? s.id : '', nome: livre || '', ses, pix}); salva(); };
-  $('#o-pixt').onchange = () => { const x = val('o-pixt'); v.pix = x === '' ? null : numBR(x); if (v.pix !== null && !(v.pix >= 0)) v.pix = null; salva(); };
-  $('#o-ent').onchange = () => { const e = val('o-ent') === '' ? 0 : numBR(val('o-ent')); if (!(e >= 0)) return toast('Entrada inválida'); v.entrada = e; salva(); };
-  $$('[data-rec]', b).forEach(x => x.onclick = () => { v.nitro = x.dataset.rec === 'nitro'; salva(); });
-  ['link', 'pag'].forEach(k => { $('#o-par-' + k).onchange = () => { v[k].par = Math.min(18, Math.max(1, Math.floor(+val('o-par-' + k)) || 1)); salva(); };
-    $('#o-tot-' + k).onchange = () => { const x = val('o-tot-' + k); v[k].total = x === '' ? null : numBR(x); if (v[k].total !== null && !(v[k].total >= 0)) v[k].total = null; salva(); }; });
+    <div class="list">${v.itens.length ? v.itens.map(linha).join('') : '<div class="empty">Nenhum procedimento neste orçamento ainda.</div>'}</div>
+    <div class="actions"><button class="btn" id="o-add" type="button">Adicionar procedimento</button>${vs.some(x => x.itens.length) ? '<button class="btn ghost" id="o-conf" type="button">Conferir tudo</button>' : ''}</div>
+    ${v.itens.length ? '<button class="linkbtn perigo" id="o-limpa" type="button">Limpar este orçamento</button>' : ''}`;
+  $$('[data-o]', b).forEach(x => x.onclick = () => { orcSel = +x.dataset.o; refaz(false); });
+  $$('[data-rm]', b).forEach(x => x.onclick = () => { v.itens.splice(+x.dataset.rm, 1); refaz(); });
+  $$('[data-ed]', b).forEach(x => x.onclick = () => orcPicker(v, +x.dataset.ed, refaz));
+  $('#o-add').onclick = () => orcPicker(v, null, refaz);
+  const c = $('#o-conf'); if (c) c.onclick = () => { orcFase = 'conferir'; refaz(false); };
+  const l = $('#o-limpa'); if (l) arm(l, () => { vs[orcSel] = novaVersao(); refaz(); });
+}
+
+/* seletor do procedimento: busca, depois serviço + região + sessões (+ aparelho) com o valor calculado; "Adicionar mais" ou "Concluído" */
+function orcPicker(v, idx, refaz){
+  const grupos = servicoGrupos(db.services), apars = db.services.filter(s => s.cat === 'Aparelhos' && +s.pix > 0), it0 = idx != null ? v.itens[idx] : null;
+  const P = {passo: it0 ? 'item' : 'busca', g: null, livre: false, nome: '', sid: '', tipo: '', ses: 1, apar: new Set(), man: null};
+  if (it0) { const s = svc(it0.sid); P.ses = it0.ses; P.tipo = it0.tipo || ''; P.man = it0.pix;
+    if (s) { P.g = grupos.find(g => g.vars.some(x => x.sid === s.id)); P.sid = s.id; } else { P.livre = true; P.nome = it0.nome || ''; } }
+  openSheet(it0 ? 'Editar procedimento' : 'Adicionar procedimento', '');
+  const corpo = h => { $('#sheet-body').innerHTML = h; };
+  const auto = () => { const s = svc(P.sid); return s ? precoSessoes(s, P.ses) : null; };
+  const valor = () => P.man != null && P.man !== '' ? numBR(P.man) : (auto() || {total: 0}).total;
+  const passoBusca = () => {
+    corpo(`<div class="form">${field('pk-q', 'Buscar procedimento', '', 'search', 'autocomplete="off" placeholder="Digite o nome"')}<div class="list" id="pk-list"></div></div>`);
+    const lista = () => { const t = semAcento(val('pk-q')).split(/\s+/).filter(Boolean), ach = grupos.filter(g => t.every(w => semAcento(g.nome + ' ' + g.cat).includes(w))), q = val('pk-q');
+      $('#pk-list').innerHTML = ach.map((g, i) => `<button class="item" data-g="${grupos.indexOf(g)}" type="button"><div class="grow"><span class="t">${esc(g.nome)}</span><div class="m">${esc(g.cat)}${g.vars.length > 1 ? ' · ' + g.vars.length + ' opções' : ''}</div></div></button>`).join('')
+        + (q ? `<button class="item" data-livre="1" type="button"><div class="grow"><span class="t">Outros: “${esc(q)}”</span><div class="m">descrever do meu jeito</div></div></button>` : '');
+      $$('[data-g]', $('#pk-list')).forEach(x => x.onclick = () => { P.g = grupos[+x.dataset.g]; P.sid = P.g.vars[0].sid; P.livre = false; P.man = null; P.apar = new Set(); P.passo = 'item'; passoItem(); });
+      const o = $('[data-livre]', $('#pk-list')); if (o) o.onclick = () => { P.livre = true; P.nome = q; P.g = null; P.sid = ''; P.man = null; P.passo = 'item'; passoItem(); }; };
+    $('#pk-q').oninput = lista; lista(); if (!matchMedia('(pointer:coarse)').matches) $('#pk-q').focus();
+  };
+  const passoItem = () => {
+    const g = P.g, s = svc(P.sid), tipos = g && TIPOS[g.nome], variacoes = g && g.vars.length > 1 ? g.vars : [], aparOk = g && g.cat !== 'Aparelhos' && !P.livre && !it0;
+    const chips = (rot, itens, sel, attr) => `<div class="f"><label>${rot}</label><div class="chips" role="group" aria-label="${rot}">${itens.map(([k, l]) => `<button class="chip peq" ${attr}="${esc(k)}" aria-selected="${sel(k)}" type="button">${esc(l)}</button>`).join('')}</div></div>`;
+    corpo(`<div class="form"><div><span class="t" style="font-weight:700">${esc(P.livre ? 'Do meu jeito' : g.nome)}</span>${it0 ? '' : '<button class="linkbtn" id="pk-troca" type="button">trocar</button>'}</div>
+      ${P.livre ? field('pk-nome', 'Descrição', P.nome, 'text', 'placeholder="ex.: drenagem abdômen c/ radiofrequência"') : ''}
+      ${variacoes.length ? chips(rotuloVariacao(g.nome), variacoes.map(x => [x.sid, x.rotulo]), k => k === P.sid, 'data-var') : ''}
+      ${tipos ? chips('Tipo (opcional)', tipos.map(t => [t, t]), k => k === P.tipo, 'data-tipo') : ''}
+      <div class="f"><label for="pk-ses">Número de sessões</label><div class="chips" role="group" aria-label="Sessões">${[1, 2, 3, 4, 6, 8, 10].map(n => `<button class="chip peq" data-ses="${n}" aria-selected="${n === +P.ses}" type="button">${n}</button>`).join('')}</div>${field('pk-ses', '', P.ses, 'number', 'inputmode="numeric" min="1" aria-label="Outro número de sessões"')}</div>
+      ${aparOk && apars.length ? chips('Aparelho junto (opcional)', apars.map(a => [a.id, a.nome]), k => P.apar.has(k), 'data-apar') : ''}
+      ${field('pk-val', 'Valor no Pix (R$)', valor() || '', 'text', 'inputmode="decimal"')}
+      <p class="sub" id="pk-prev" style="margin:0"></p>
+      <div class="actions"><button class="btn" id="pk-mais" type="button">Adicionar mais</button><button class="btn" id="pk-ok" type="button">Concluído</button>${it0 ? '<button class="btn danger small" id="pk-rm" type="button">Remover</button>' : ''}</div></div>`);
+    const prev = () => { const a = auto(), val0 = valor(), extra = [...P.apar].reduce((t, k) => t + precoSessoes(svc(k), P.ses).total, 0);
+      $('#pk-prev').textContent = P.livre ? '' : !s || !(+s.pix > 0) ? 'Esse procedimento ainda não tem preço na Tabela de preços: digite o valor.'
+        : (a.pacote ? 'Valor do pacote de ' + a.pacote + ' sessões: ' : 'Sem pacote: ') + brl(a.por) + ' por sessão' + (descontoDe(s, a.por) ? ' (' + descontoDe(s, a.por) + '% menos que a sessão avulsa)' : '') + (extra ? ' · aparelhos: ' + brl(extra) : '') + '.'; };
+    prev();
+    const re = () => { P.passo = 'item'; passoItem(); };
+    $$('[data-var]').forEach(x => x.onclick = () => { P.sid = x.dataset.var; P.man = null; re(); });
+    $$('[data-tipo]').forEach(x => x.onclick = () => { P.tipo = P.tipo === x.dataset.tipo ? '' : x.dataset.tipo; re(); });
+    $$('[data-ses]').forEach(x => x.onclick = () => { P.ses = +x.dataset.ses; P.man = null; re(); });
+    $$('[data-apar]').forEach(x => x.onclick = () => { P.apar.has(x.dataset.apar) ? P.apar.delete(x.dataset.apar) : P.apar.add(x.dataset.apar); re(); });
+    $('#pk-ses').oninput = () => { P.ses = Math.max(1, Math.floor(+val('pk-ses')) || 1); P.man = null; const a = auto(); if (a) $('#pk-val').value = a.total || ''; prev(); };
+    $('#pk-val').oninput = () => { P.man = val('pk-val'); };
+    const nm = $('#pk-nome'); if (nm) nm.oninput = () => { P.nome = nm.value; };
+    const tr = $('#pk-troca'); if (tr) tr.onclick = () => { P.passo = 'busca'; passoBusca(); };
+    const grava = mais => { const ses = Math.max(1, Math.floor(+val('pk-ses')) || 1), pix = numBR(val('pk-val') || '0');
+      if (P.livre && !P.nome.trim()) return toast('Descreva o procedimento'); if (!P.livre && !svc(P.sid)) return toast('Escolha a opção');
+      if (!(pix >= 0)) return toast('Valor inválido');
+      const item = P.livre ? {sid: '', nome: P.nome.trim(), ses, pix} : {sid: P.sid, nome: '', tipo: P.tipo, ses, pix};
+      if (idx != null) v.itens[idx] = item; else { v.itens.push(item); P.apar.forEach(k => v.itens.push({sid: k, nome: '', ses, pix: precoSessoes(svc(k), ses).total})); }
+      refaz();
+      if (mais) { idx = null; P.passo = 'busca'; P.g = null; P.livre = false; P.nome = ''; P.sid = ''; P.tipo = ''; P.ses = 1; P.apar = new Set(); P.man = null; passoBusca(); toast('Adicionado. Escolha o próximo.'); } else closeSheet(); };
+    $('#pk-mais').onclick = () => grava(true); $('#pk-ok').onclick = () => grava(false);
+    const rm = $('#pk-rm'); if (rm) rm.onclick = () => { v.itens.splice(idx, 1); refaz(); closeSheet(); };
+  };
+  P.passo === 'busca' ? passoBusca() : passoItem();
+}
+
+/* etapa 2: confere as três opções já com os valores, ajusta total, entrada e parcelas, envia e fecha */
+function orcConferir(b, p, vs, refaz){
+  const cheias = vs.map((v, i) => ({v, i})).filter(x => x.v.itens.length);
+  if (!cheias.length) { b.innerHTML = '<div class="list"><div class="empty">Monte pelo menos uma opção primeiro.</div></div><div class="actions"><button class="btn" id="o-volta" type="button">Montar tudo</button></div>'; $('#o-volta').onclick = () => { orcFase = 'montar'; refaz(false); }; return; }
+  const msg = orcMensagem(firstName(p.nome), vs, db.orc, db.services), wa = msg && waLink(p, msg, {});
+  const card = ({v, i}) => { const tot = k => totalCanal(v, k, db.orc, db.services), par = k => Math.max(1, Math.floor(+v[k].par) || 1), pix = totalPix(v);
+    const linhaIt = it => `<div class="item static"><div class="grow"><span class="t">${esc(it.ses)} · ${esc(nomeItem(it, db.services))}</span></div><span class="m">${+it.pix ? brl(it.pix) : '—'}</span></div>`;
+    const cartao = (k, nome) => `<div class="orc-canal"><span class="t" style="font-weight:700">${nome}</span>${k === 'link' ? `<div class="seg" role="group" aria-label="Recebimento do link" style="align-self:flex-start"><button type="button" data-rec="dia" data-i="${i}" aria-pressed="${!v.nitro}">1 dia útil</button><button type="button" data-rec="nitro" data-i="${i}" aria-pressed="${!!v.nitro}">Nitro (na hora)</button></div>` : ''}
+      <div class="two">${field(`o-par-${k}-${i}`, 'Parcelas', par(k), 'number', 'inputmode="numeric" min="1" max="18"')}${field(`o-tot-${k}-${i}`, 'Total (à mão)', v[k].total == null ? '' : v[k].total, 'text', 'inputmode="decimal" placeholder="' + tot(k) + '"')}</div>
+      <p class="sub" style="margin:0">${par(k)}x de ${brl(porParcela(tot(k), v.entrada, par(k)))}${+v.entrada ? ' + entrada de ' + brl(v.entrada) : ''} · total ${brl(tot(k))}</p></div>`;
+    return `<section class="card form"><h2 style="font-size:16px;margin:0">Orçamento 0${i + 1}</h2><div class="list">${v.itens.map(linhaIt).join('')}</div>
+      <div class="orc-canal"><span class="t" style="font-weight:700">Pix ou dinheiro · ${brl(pix)}</span><div class="two">${field('o-pixt-' + i, 'Total no Pix (R$)', v.pix == null ? '' : v.pix, 'text', 'inputmode="decimal" placeholder="' + (somaPix(v) || '') + '"')}${field('o-ent-' + i, 'Entrada (R$)', +v.entrada || '', 'text', 'inputmode="decimal" placeholder="0"')}</div></div>
+      ${cartao('link', 'Link de pagamento (Infiniti)')}${cartao('pag', 'Maquininha (PagSeguro)')}
+      <div class="actions">${v.fechado ? `<span class="pill">Fechado em ${fmtD(v.fechado)}</span>` : `<button class="btn" data-fecha="${i}" type="button">Fechar este orçamento</button>`}</div></section>`; };
+  b.innerHTML = `${cheias.map(card).join('')}
+    <details class="gaveta"><summary><span>Ver a mensagem para a cliente</span>${ICO_SETA}</summary><div><pre class="msgprev">${esc(msg)}</pre></div></details>
+    <div class="actions">${wa ? `<a class="btn" id="o-wa" href="${wa}" target="_blank" rel="noopener">${ICO_BALAO}Enviar orçamentos por WhatsApp</a>` : `<span class="pill">${p.tel ? 'preencha um orçamento' : 'sem telefone'}</span>`}<button class="btn ghost" id="o-volta" type="button">Voltar a montar</button></div>
+    <p class="src">O cartão é calculado com as taxas de Ajustes, para você receber o mesmo que no Pix. A mensagem não mostra taxa nem tipo de recebimento.</p>`;
+  const sobre = (i, fn) => { orcSel = i; fn(vs[i]); refaz(); };
+  $$('[data-rec]', b).forEach(x => x.onclick = () => sobre(+x.dataset.i, v => { v.nitro = x.dataset.rec === 'nitro'; }));
+  cheias.forEach(({i}) => {
+    $('#o-pixt-' + i).onchange = () => sobre(i, v => { const x = val('o-pixt-' + i); v.pix = x === '' ? null : numBR(x); if (v.pix !== null && !(v.pix >= 0)) v.pix = null; });
+    $('#o-ent-' + i).onchange = () => sobre(i, v => { const e = val('o-ent-' + i) === '' ? 0 : numBR(val('o-ent-' + i)); v.entrada = e >= 0 ? e : 0; });
+    ['link', 'pag'].forEach(k => { $(`#o-par-${k}-${i}`).onchange = () => sobre(i, v => { v[k].par = Math.min(18, Math.max(1, Math.floor(+val(`o-par-${k}-${i}`)) || 1)); });
+      $(`#o-tot-${k}-${i}`).onchange = () => sobre(i, v => { const x = val(`o-tot-${k}-${i}`); v[k].total = x === '' ? null : numBR(x); if (v[k].total !== null && !(v[k].total >= 0)) v[k].total = null; }); });
+  });
+  $$('[data-fecha]', b).forEach(x => x.onclick = () => { orcSel = +x.dataset.fecha; orcFecha(p, vs[orcSel], alvo => irFicha(alvo.id, p.lead ? 'dados' : 'pacotes', p.lead)); });
+  $('#o-volta').onclick = () => { orcFase = 'montar'; refaz(false); };
   const w = $('#o-wa'); if (w) w.onclick = () => { if (!p.lead) registrarEnvio(p.id, 'orcamento', 'orcamento:' + Date.now(), msg); };
-  const l = $('#o-limpa'); if (l) arm(l, () => { vs[orcSel] = novaVersao(); salva(); });
-  const f = $('#o-fecha'); if (f) f.onclick = () => orcFecha(p, v, alvo => irFicha(alvo.id, p.lead ? 'dados' : 'pacotes', p.lead));
 }
 function orcFecha(p, v, depois){
   openSheet('Fechar orçamento 0' + (orcSel + 1), `<div class="form"><p class="sub" style="margin:0">${p.lead ? 'A cliente é cadastrada agora (nome e WhatsApp) e você completa a ficha em seguida. ' : ''}Cada procedimento vira um pacote na ficha, com o valor dividido e a entrada já como parcela paga.</p>
@@ -982,7 +1058,9 @@ function viewDespesas(app){
   app.innerHTML = `<div class="head"><div><h1>Despesas e produtos</h1><p class="sub">Mudou o aluguel ou o preço de um material? Altere aqui e a tabela de preços recalcula sozinha.</p></div></div>
     <section class="card form"><h2 style="font-size:16px;margin:0">Base de cálculo</h2>
       <div class="two">${field('c-horas', 'Horas trabalhadas por mês', c.horasMes, 'text', 'inputmode="decimal"')}${field('c-mult', 'Preço sugerido = custo ×', c.mult, 'text', 'inputmode="decimal"')}</div>
-      <div class="two">${field('c-taxa', 'Taxa do cartão (%)', c.taxa, 'text', 'inputmode="decimal"')}<div class="f"><label>Custo da hora</label><p class="calc">${brl(hf)}</p></div></div></section>
+      <div class="two">${field('c-taxa', 'Taxa do cartão (%)', c.taxa, 'text', 'inputmode="decimal"')}<div class="f"><label>Custo da hora</label><p class="calc">${brl(hf)}</p></div></div>
+      <div class="three">${field('c-lind', 'Lucro avulsa (%)', lucroDe(c).ind, 'text', 'inputmode="decimal"')}${field('c-lp4', 'Lucro pacote 4 (%)', lucroDe(c).p4, 'text', 'inputmode="decimal"')}${field('c-lp8', 'Lucro pacote 8 (%)', lucroDe(c).p8, 'text', 'inputmode="decimal"')}</div>
+      <p class="sub" style="margin:0">O sugerido de cada plano é o custo × ${esc(c.mult)} mais esse lucro, arredondado de 5 em 5. Fica na tela de cada serviço.</p></section>
     <section><div class="subh"><h2>Despesas fixas</h2><button class="btn ghost small" id="c-nova-fixa" type="button">Nova</button></div>
       <div class="list">${fixas.map(i => `<button class="item" data-i="${i.id}" type="button"><div class="grow"><div class="t">${esc(i.nome)}</div><div class="m">${brl(nv(i.valor) / (nv(c.horasMes) || 180))} por hora</div></div><div class="price">${brl(i.valor)}<small>por mês</small></div></button>`).join('')}
         <div class="item static total"><div class="grow"><div class="t">Total fixo</div><div class="m">dividido por ${esc(c.horasMes)} horas</div></div><div class="price">${brl(totalFixo(c))}<small>${brl(hf)} por hora</small></div></div></div></section>
@@ -990,6 +1068,7 @@ function viewDespesas(app){
       <input class="search" id="q" type="search" placeholder="Buscar material" aria-label="Buscar material" autocomplete="off"><div id="clist"></div></section>`;
   const set = (k, id, conv) => { const el = $('#' + id); el.onchange = () => { const n = numVal(id); if (n == null || n <= 0) { toast('Informe um número maior que zero'); route(); return; } c[k] = n; save(); route(); toast('Recalculado'); }; };
   set('horasMes', 'c-horas'); set('mult', 'c-mult'); set('taxa', 'c-taxa');
+  [['ind', 'c-lind'], ['p4', 'c-lp4'], ['p8', 'c-lp8']].forEach(([k, id]) => { $('#' + id).onchange = () => { const n = numVal(id); if (n == null || n < 0 || n > 500) { toast('Informe uma porcentagem válida'); route(); return; } c.lucro = {...lucroDe(c), [k]: n}; save(); route(); toast('Recalculado'); }; });
   const draw = () => {
     const q = $('#q').value.trim().toLowerCase(), vars = c.itens.filter(i => i.tipo !== 'fixa');
     const gr = [...GRUPOS_VAR, ...new Set(vars.map(i => i.grupo).filter(g => g && !GRUPOS_VAR.includes(g)))];
@@ -1028,7 +1107,7 @@ function viewPrecos(app){
     $('#slist').innerHTML = CATS.map(cat => { const rows = db.services.filter(s => s.cat === cat && (!q || s.nome.toLowerCase().includes(q))); if (!rows.length) return '';
       return `<details class="group" ${q || cat === CATS[0] ? 'open' : ''}><summary>${esc(cat)}<span>${rows.length}</span></summary><div class="list" style="border:0;border-radius:0">${rows.map(s => {
         const custo = custoDe(c, c.rec[s.id]), sug = sugerido(c, custo), mg = margem(custo, s.pix), baixo = s.pix != null && sug != null && Number(s.pix) < sug;
-        return `<button class="item" data-s="${s.id}" type="button"><div class="grow"><div class="t">${esc(s.nome)}</div><div class="m">${custo != null ? 'custo ' + brl(custo) + (mg != null ? ' · margem ' + Math.round(mg * 100) + '%' : '') : 'sem custo cadastrado'}</div>${s.pacotes && s.pacotes.length ? `<div class="pk">${s.pacotes.map(([n, t]) => n + ' sessões ' + money(t)).join(' · ')}</div>` : ''}</div><div class="price">${s.pix != null ? money(s.pix) : '<span class="pill">a definir</span>'}${sug != null ? `<small class="${baixo ? 'baixo' : ''}">sugerido ${money(sug)}</small>` : ''}</div></button>`; }).join('')}</div></details>`; }).join('') || '<div class="list"><div class="empty">Nenhum serviço encontrado.</div></div>';
+        return `<button class="item" data-s="${s.id}" type="button"><div class="grow"><div class="t">${esc(s.nome)}</div><div class="m">${custo != null ? 'custo ' + brl(custo) + (mg != null ? ' · margem ' + Math.round(mg * 100) + '%' : '') : 'sem custo cadastrado'}</div>${s.pacotes && s.pacotes.length ? `<div class="pk">${s.pacotes.map(([n, t]) => { const d = descontoDe(s, t / n); return n + ' sessões ' + money(t) + (d ? ' (' + d + '% menos)' : ''); }).join(' · ')}</div>` : ''}</div><div class="price">${s.pix != null ? money(s.pix) : '<span class="pill">a definir</span>'}${sug != null ? `<small class="${baixo ? 'baixo' : ''}">sugerido ${money(sug)}</small>` : ''}</div></button>`; }).join('')}</div></details>`; }).join('') || '<div class="list"><div class="empty">Nenhum serviço encontrado.</div></div>';
     $$('[data-s]').forEach(x => x.onclick = () => serviceForm(svc(x.dataset.s)));
   };
   $('#q').oninput = draw; draw(); $('#s-new').onclick = () => serviceForm();
@@ -1041,20 +1120,30 @@ function serviceForm(s){
     <div class="two">${field('v-pix', 'Preço Pix ou dinheiro (R$)', s.pix ?? '', 'text', 'inputmode="decimal"')}${field('v-card', 'Preço no cartão (R$)', s.card ?? '', 'text', 'inputmode="decimal"')}</div>
     <div class="two">${field('v-dur', 'Duração (min)', s.dur ?? '', 'text', 'inputmode="numeric"')}${field('v-ret', 'Retorno em (dias)', s.ret ?? '', 'text', 'inputmode="numeric"')}</div>
     <div class="two">${field('v-p4', 'Pacote 4 sessões (total R$)', pk(4), 'text', 'inputmode="decimal"')}${field('v-p8', 'Pacote 8 sessões (total R$)', pk(8), 'text', 'inputmode="decimal"')}</div>
+    <p class="sub" id="v-pkinfo" style="margin:0"></p>
     <div class="custo" id="v-custo"></div>
+    <div class="custo" id="v-plano"></div>
     <div class="two">${field('v-h', 'Horas gastas no atendimento', rec.h || '', 'text', 'inputmode="decimal"')}<div class="f"><label>&nbsp;</label><button class="btn ghost" id="v-usar" type="button">Usar preço sugerido</button></div></div>
+    <button class="btn ghost" id="v-usar3" type="button">Usar os 3 sugeridos (avulsa, pacote 4 e 8)</button>
     <div id="v-rec"></div>
     <div class="two">${select('v-add', 'Adicionar material', [['', 'Escolher…'], ...db.custos.itens.filter(i => i.tipo !== 'fixa').map(i => [i.id, i.nome])], '')}<div class="f"><label>&nbsp;</label><button class="btn ghost" id="v-addb" type="button">Adicionar</button></div></div>
     <div class="actions"><button class="btn" id="v-ok" type="button">Salvar</button>${e ? '<button class="btn danger" id="v-del" type="button">Excluir</button>' : ''}</div></div>`);
   const num = id => { const v = val(id).replace(',', '.'); return v === '' || isNaN(Number(v)) ? null : Number(v); };
   const by = id => db.custos.itens.find(x => x.id === id);
   const calc = () => { rec.h = num('v-h') || 0; const custo = custoDe(db.custos, rec), sug = sugerido(db.custos, custo), mg = margem(custo, num('v-pix'));
-    $('#v-custo').innerHTML = `<div><small>Custo</small><b>${brl(custo)}</b></div><div><small>Sugerido</small><b>${brl(sug)}</b></div><div><small>Margem</small><b>${mg == null ? '—' : Math.round(mg * 100) + '%'}</b></div>`; };
+    $('#v-custo').innerHTML = `<div><small>Custo</small><b>${brl(custo)}</b></div><div><small>Sugerido</small><b>${brl(sug)}</b></div><div><small>Margem</small><b>${mg == null ? '—' : Math.round(mg * 100) + '%'}</b></div>`;
+    const pl = k => sugeridoPlano(db.custos, custo, k), l = lucroDe(db.custos), p = n => num('v-p' + n), pix = num('v-pix');
+    $('#v-plano').innerHTML = custo ? `<div><b>${brl(pl('ind'))}</b><small>avulsa (+${l.ind}%)</small></div><div><b>${brl(pl('p4'))}</b><small>pacote 4, por sessão (+${l.p4}%)</small></div><div><b>${brl(pl('p8'))}</b><small>pacote 8, por sessão (+${l.p8}%)</small></div>` : '<p class="sub" style="margin:0">Informe as horas e os materiais para ver o sugerido de cada plano.</p>';
+    const linhaPk = n => p(n) > 0 && pix > 0 ? 'pacote ' + n + ': ' + brl(p(n) / n) + ' por sessão' + (Math.round((1 - p(n) / n / pix) * 100) > 0 ? ', ' + Math.round((1 - p(n) / n / pix) * 100) + '% menos que a avulsa' : '') : '';
+    $('#v-pkinfo').textContent = [linhaPk(4), linhaPk(8)].filter(Boolean).join(' · '); };
   const drawRec = () => { $('#v-rec').innerHTML = rec.i.map(([id, q]) => { const it = by(id); return it ? `<div class="rr"><span>${esc(it.nome)}<small>${brl(unitario(it))} por uso</small></span><input type="text" inputmode="decimal" value="${esc(q)}" data-rq="${id}" aria-label="Quantidade de ${esc(it.nome)}"><button class="btn ghost small" data-rx="${id}" type="button" aria-label="Remover ${esc(it.nome)}">×</button></div>` : ''; }).join('');
     $$('[data-rq]').forEach(x => x.oninput = () => { rec.i.find(r => r[0] === x.dataset.rq)[1] = nv(x.value); calc(); });
     $$('[data-rx]').forEach(x => x.onclick = () => { rec.i = rec.i.filter(r => r[0] !== x.dataset.rx); drawRec(); calc(); }); };
   $('#v-addb').onclick = () => { const id = val('v-add'); if (!id) return toast('Escolha um material'); const r = rec.i.find(x => x[0] === id); if (r) r[1] += 1; else rec.i.push([id, 1]); drawRec(); calc(); };
   $('#v-usar').onclick = () => { const sug = sugerido(db.custos, custoDe(db.custos, rec)); if (sug == null || !sug) return toast('Informe as horas e os materiais primeiro'); $('#v-pix').value = sug; calc(); };
+  $('#v-usar3').onclick = () => { const custo = custoDe(db.custos, rec); if (custo == null || !custo) return toast('Informe as horas e os materiais primeiro');
+    $('#v-pix').value = sugeridoPlano(db.custos, custo, 'ind'); $('#v-p4').value = sugeridoPlano(db.custos, custo, 'p4') * 4; $('#v-p8').value = sugeridoPlano(db.custos, custo, 'p8') * 8; calc(); };
+  ['v-p4', 'v-p8'].forEach(id => $('#' + id).addEventListener('input', calc));
   $('#v-h').oninput = calc; $('#v-pix').oninput = calc; drawRec(); calc();
   $('#v-ok').onclick = () => { const nome = val('v-nome'); if (!nome) return toast('Informe o nome');
     const pacotes = [[4, num('v-p4')], [8, num('v-p8')]].filter(x => x[1] != null);

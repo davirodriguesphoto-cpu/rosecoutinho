@@ -26,3 +26,9 @@ export function semear(seed, services){
   for (const [nome, r] of Object.entries(seed.rec)) if (byName.has(nome)) rec[byName.get(nome)] = {h: r.h, i: r.i.map(x => [...x])};
   return {horasMes: seed.horasMes, mult: seed.mult, taxa: seed.taxa, itens: seed.itens.map(i => ({...i})), rec};
 }
+
+/* lucro de cada plano sobre custo × multiplicador (planilha da Rose: avulsa 25%, pacote de 4 sessões 15%, pacote de 8 sessões 5%) */
+export const LUCRO_PADRAO = {ind: 25, p4: 15, p8: 5};
+export const lucroDe = c => ({...LUCRO_PADRAO, ...(c.lucro || {})});
+/* preço sugerido por sessão em cada plano ('ind', 'p4' ou 'p8'), arredondado de 5 em 5 */
+export const sugeridoPlano = (c, custo, k) => custo == null ? null : Math.round(custo * (num(c.mult) || 2) * (1 + num(lucroDe(c)[k]) / 100) / 5) * 5;
