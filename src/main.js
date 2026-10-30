@@ -886,7 +886,7 @@ function orcConferir(b, p, vs, refaz){
       <div class="two">${field(`o-par-${k}-${i}`, 'Parcelas', par(k), 'number', 'inputmode="numeric" min="1" max="18"')}${field(`o-tot-${k}-${i}`, 'Total (à mão)', v[k].total == null ? '' : v[k].total, 'text', 'inputmode="decimal" placeholder="' + tot(k) + '"')}</div>
       <p class="sub" style="margin:0">${par(k)}x de ${brl(porParcela(tot(k), v.entrada, par(k)))}${+v.entrada ? ' + entrada de ' + brl(v.entrada) : ''} · total ${brl(tot(k))}</p></div>`;
     return `<section class="card form"><h2 style="font-size:16px;margin:0">Orçamento 0${i + 1}</h2><div class="list">${v.itens.map(linhaIt).join('')}</div>
-      <div class="orc-canal"><span class="t" style="font-weight:700">Pix ou dinheiro · ${brl(pix)}</span><div class="two">${field('o-pixt-' + i, 'Total no Pix (R$)', v.pix == null ? '' : v.pix, 'text', 'inputmode="decimal" placeholder="' + (somaPix(v) || '') + '"')}${field('o-ent-' + i, 'Entrada (R$)', +v.entrada || '', 'text', 'inputmode="decimal" placeholder="0"')}</div></div>
+      <div class="orc-canal"><span class="t" style="font-weight:700">Pix ou dinheiro · ${brl(pix)}</span><div class="two">${field('o-pixt-' + i, 'Total Pix (R$)', v.pix == null ? '' : v.pix, 'text', 'inputmode="decimal" placeholder="' + (somaPix(v) || '') + '"')}${field('o-ent-' + i, 'Entrada (R$)', +v.entrada || '', 'text', 'inputmode="decimal" placeholder="0"')}</div></div>
       ${cartao('link', 'Link de pagamento (Infiniti)')}${cartao('pag', 'Maquininha (PagSeguro)')}
       <div class="actions">${v.fechado ? `<span class="pill">Fechado em ${fmtD(v.fechado)}</span>` : `<button class="btn" data-fecha="${i}" type="button">Fechar este orçamento</button>`}</div></section>`; };
   b.innerHTML = `${cheias.map(card).join('')}

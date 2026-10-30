@@ -620,3 +620,11 @@ body.kb .panel{padding-bottom:20px}
 .msgprev{white-space:pre-wrap;font:inherit;margin:0;line-height:1.5}
 
 .three{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+
+/* orçamento: mais respiro entre cartões e entre os blocos de pagamento */
+.orc-fase{gap:22px}
+.orc-fase .card.form{gap:22px;padding-bottom:22px}
+.orc-canal{gap:12px;padding-top:20px;margin-top:2px}
+.orc-canal .two{grid-template-columns:1fr 1fr;gap:12px}
+.orc-canal .sub{margin-top:2px}
+.orc-canal .two{align-items:end}
