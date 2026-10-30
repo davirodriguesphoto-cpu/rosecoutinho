@@ -554,3 +554,6 @@ label.btn[aria-disabled="true"]{opacity:.6;pointer-events:none}
 /* topo: o texto que rola por baixo nao pode aparecer atraves do cabecalho (faixa estranha) */
 .top::before{background:color-mix(in srgb,var(--bg) 94%,transparent);-webkit-mask-image:linear-gradient(#000 82%,transparent);mask-image:linear-gradient(#000 82%,transparent)}
 body::before{background:var(--bg);-webkit-backdrop-filter:none;backdrop-filter:none;-webkit-mask-image:none;mask-image:none}
+/* topo de fora a fora: o fundo cobre a largura inteira da tela, sem sobra nas laterais */
+.top::before{left:calc(50% - 50vw);right:calc(50% - 50vw)}
+html,body{overflow-x:clip}
